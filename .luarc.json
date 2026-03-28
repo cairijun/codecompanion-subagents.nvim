@@ -1,0 +1,20 @@
+{
+    "$schema": "https://raw.githubusercontent.com/LuaLS/vscode-lua/master/setting/schema.json",
+    "runtime": {
+        "version": "LuaJIT",
+        "path": [
+            "lua/?.lua",
+            "lua/?/init.lua",
+            "tests/?.lua",
+            "tests/?/init.lua"
+        ]
+    },
+    "workspace": {
+        "library": [
+            "deps/mini.nvim/lua",
+            "deps/plenary.nvim/lua",
+            "deps/nvim-treesitter/lua",
+            "deps/codecompanion.nvim/lua"
+        ]
+    }
+}

@@ -1,0 +1,84 @@
+---@class CodeCompanion.Tool.CompleteSubAgent
+local M = {}
+
+M.name = "complete_subagent"
+
+M.cmds = {
+  ---Complete the sub-agent task
+  ---@param self CodeCompanion.Tools.Tool
+  ---@param args table The arguments from the LLM's tool call
+  ---@param opts? {input: any, output_cb: fun(result: {status: string, data: any})}
+  ---@return {status: "success"|"error", data: string}?
+  function(self, args, opts)
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local result = args.result
+
+    -- Get parent chat from subagent chat
+    local parent_chat = self.chat._parent_chat
+
+    if not parent_chat then
+      -- Error: no parent chat reference
+      if opts and opts.output_cb then
+        opts.output_cb({ status = "error", data = "No parent chat reference" })
+      end
+      return
+    end
+
+    if not result then
+      manager:complete_subagent(parent_chat, "Error: No result provided", true)
+      if opts and opts.output_cb then
+        opts.output_cb({ status = "error", data = "No result provided" })
+      end
+      return
+    end
+
+    manager:complete_subagent(parent_chat, result, false)
+
+    if opts and opts.output_cb then
+      opts.output_cb({ status = "success", data = result })
+    end
+  end,
+}
+
+M.schema = {
+  type = "function",
+  ["function"] = {
+    name = "complete_subagent",
+    description = "Complete the sub-agent task and return results to the parent chat",
+    parameters = {
+      type = "object",
+      properties = {
+        result = {
+          type = "string",
+          description = "The result or output from the sub-agent task",
+        },
+      },
+      required = { "result" },
+    },
+    strict = true,
+  },
+}
+
+M.handlers = {
+  on_exit = function(self, meta)
+    -- Cleanup if needed
+  end,
+}
+
+M.output = {
+  prompt = function(self, meta)
+    return "Complete sub-agent task?"
+  end,
+  success = function(self, stdout, meta)
+    local chat = meta.tools.chat
+    local output = vim.iter(stdout):flatten():join("\n")
+    chat:add_tool_output(self, output, "Sub-agent completed")
+  end,
+  error = function(self, stderr, meta)
+    local chat = meta.tools.chat
+    local errors = vim.iter(stderr):flatten():join("\n")
+    chat:add_tool_output(self, errors)
+  end,
+}
+
+return M
