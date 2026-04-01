@@ -10,10 +10,34 @@ local M = {}
 function M.create_subagent_tool(name, config)
   local prefixed_name = "subagent_" .. name
   local description = config.description or ("Sub-agent: " .. name)
-  local system_prompt = config.system_prompt or ("You are a sub-agent named " .. name)
+  local system_prompt = config.system_prompt
   local tools = config.tools or {}
   local mcp_servers = config.mcp_servers
-  local context_description = config.context_description or "Additional context for the task"
+  -- Context mode: "explicit" (default) or "inherit"
+  -- - explicit: context is passed as a parameter
+  -- - inherit: inherits message history from parent chat
+  local context_mode = config.context_mode or "explicit"
+  -- context_spec: describes what context is needed
+  local context_spec = config.context_spec or "Additional context for the task"
+  -- result_spec: describes what result format is expected
+  local result_spec = config.result_spec
+  local replace_main_system_prompt = config.replace_main_system_prompt or false
+
+  -- Build schema properties based on context_mode
+  local schema_properties = {
+    task = {
+      type = "string",
+      description = "The task description for the sub-agent",
+    },
+  }
+
+  -- Only add context parameter in explicit mode
+  if context_mode == "explicit" then
+    schema_properties.context = {
+      type = "object",
+      description = context_spec,
+    }
+  end
 
   return {
     name = prefixed_name,
@@ -27,6 +51,9 @@ function M.create_subagent_tool(name, config)
           system_prompt = system_prompt,
           tools = tools,
           mcp_servers = mcp_servers,
+          replace_main_system_prompt = replace_main_system_prompt,
+          context_mode = context_mode,
+          result_spec = result_spec,
         }, args.task, args.context)
 
         -- Store completion callback in chat object
@@ -50,16 +77,7 @@ function M.create_subagent_tool(name, config)
         description = description,
         parameters = {
           type = "object",
-          properties = {
-            task = {
-              type = "string",
-              description = "The task description for the sub-agent",
-            },
-            context = {
-              type = "object",
-              description = context_description,
-            },
-          },
+          properties = schema_properties,
           required = { "task" },
         },
         strict = true,

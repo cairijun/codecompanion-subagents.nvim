@@ -34,9 +34,8 @@ M.cmds = {
 
     manager:complete_subagent(parent_chat, result, false)
 
-    if opts and opts.output_cb then
-      opts.output_cb({ status = "success", data = result })
-    end
+    -- Intentionally do not call output_cb on success to prevent Chat auto-submit
+    -- The subagent result is already passed to parent chat via manager:complete_subagent
   end,
 }
 
@@ -66,14 +65,6 @@ M.handlers = {
 }
 
 M.output = {
-  prompt = function(self, meta)
-    return "Complete sub-agent task?"
-  end,
-  success = function(self, stdout, meta)
-    local chat = meta.tools.chat
-    local output = vim.iter(stdout):flatten():join("\n")
-    chat:add_tool_output(self, output, "Sub-agent completed")
-  end,
   error = function(self, stderr, meta)
     local chat = meta.tools.chat
     local errors = vim.iter(stderr):flatten():join("\n")

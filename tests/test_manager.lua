@@ -602,4 +602,1266 @@ T["manager"]["error handling"]["calls callback with error flag"] = function()
   h.eq(true, child.lua_get([[_G.callback_is_error]]))
 end
 
+T["manager"]["inherit tools"] = new_set()
+
+T["manager"]["inherit tools"]["get_inherited_tools returns tools from parent"] = function()
+  -- Test that get_inherited_tools correctly extracts and filters tools from parent chat
+  -- Intent: Verify tools are inherited from parent's tool_registry.in_use, excluding subagent tools
+  -- Ref: Plan Task 1, Step 1
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    
+    -- 创建带有 tool_registry 的 mock parent chat
+    local mock_parent_chat = {
+      tool_registry = {
+        in_use = {
+          ["read_file"] = true,
+          ["grep_search"] = true,
+          ["subagent_code_reviewer"] = true,  -- 应该被过滤
+        },
+        groups = {},
+      },
+    }
+    
+    local tools = manager:get_inherited_tools(mock_parent_chat)
+    
+    _G.tools_count = #tools
+    _G.has_read_file = vim.tbl_contains(tools, "read_file")
+    _G.has_grep_search = vim.tbl_contains(tools, "grep_search")
+    _G.has_subagent = vim.tbl_contains(tools, "subagent_code_reviewer")
+  ]])
+
+  h.eq(2, child.lua_get([[_G.tools_count]]))
+  h.eq(true, child.lua_get([[_G.has_read_file]]))
+  h.eq(true, child.lua_get([[_G.has_grep_search]]))
+  h.eq(false, child.lua_get([[_G.has_subagent]]))
+end
+
+T["manager"]["inherit tools"]["get_inherited_tools handles nil parent"] = function()
+  -- Test that get_inherited_tools handles nil parent gracefully
+  -- Intent: Verify empty list is returned when parent is nil
+  -- Ref: Plan Task 1, Step 1
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    
+    local tools = manager:get_inherited_tools(nil)
+    
+    _G.tools_empty = #tools == 0
+  ]])
+
+  h.eq(true, child.lua_get([[_G.tools_empty]]))
+end
+
+T["manager"]["inherit tools"]["get_inherited_tools handles missing tool_registry"] = function()
+  -- Test that get_inherited_tools handles missing tool_registry
+  -- Intent: Verify empty list is returned when parent has no tool_registry
+  -- Ref: Plan Task 1, Step 1
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    
+    local mock_parent_chat = {}
+    
+    local tools = manager:get_inherited_tools(mock_parent_chat)
+    
+    _G.tools_empty = #tools == 0
+  ]])
+
+  h.eq(true, child.lua_get([[_G.tools_empty]]))
+end
+
+T["manager"]["inherit tools"]["get_inherited_tools handles empty tools"] = function()
+  -- Test that get_inherited_tools handles empty in_use table
+  -- Intent: Verify empty list is returned when parent has no tools in use
+  -- Ref: Plan Task 1, Step 1
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    
+    local mock_parent_chat = {
+      tool_registry = {
+        in_use = {},
+        groups = {},
+      },
+    }
+    
+    local tools = manager:get_inherited_tools(mock_parent_chat)
+    
+    _G.tools_empty = #tools == 0
+  ]])
+
+  h.eq(true, child.lua_get([[_G.tools_empty]]))
+end
+
+T["manager"]["inherit tools"]["get_inherited_tools filters all subagent tools"] = function()
+  -- Test that get_inherited_tools filters all subagent tools
+  -- Intent: Verify empty list is returned when parent only has subagent tools
+  -- Ref: Plan Task 1, Step 1
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    
+    local mock_parent_chat = {
+      tool_registry = {
+        in_use = {
+          ["subagent_code_reviewer"] = true,
+          ["subagent_test_writer"] = true,
+        },
+        groups = {},
+      },
+    }
+    
+    local tools = manager:get_inherited_tools(mock_parent_chat)
+    
+    _G.tools_empty = #tools == 0
+  ]])
+
+  h.eq(true, child.lua_get([[_G.tools_empty]]))
+end
+
+T["manager"]["inherit mcp_servers"] = new_set()
+
+T["manager"]["inherit mcp_servers"]["get_inherited_mcp_servers returns servers from parent"] = function()
+  -- Test that get_inherited_mcp_servers correctly extracts MCP server names from parent chat
+  -- Intent: Verify MCP servers are extracted from tool_registry.groups with mcp: prefix
+  -- Ref: Plan Task 3, Step 1
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    
+    -- 创建带有 MCP groups 的 mock parent chat
+    local mock_parent_chat = {
+      tool_registry = {
+        in_use = {},
+        groups = {
+          ["mcp:tavily"] = { "tavily_search" },
+          ["mcp:sequential-thinking"] = { "sequential_thinking" },
+          ["other_group"] = { "other_tool" },  -- 非 MCP 组，应该被忽略
+        },
+      },
+    }
+    
+    local servers = manager:get_inherited_mcp_servers(mock_parent_chat)
+    
+    _G.servers_count = #servers
+    _G.has_tavily = vim.tbl_contains(servers, "tavily")
+    _G.has_sequential = vim.tbl_contains(servers, "sequential-thinking")
+    _G.has_other = vim.tbl_contains(servers, "other_group")
+  ]])
+
+  h.eq(2, child.lua_get([[_G.servers_count]]))
+  h.eq(true, child.lua_get([[_G.has_tavily]]))
+  h.eq(true, child.lua_get([[_G.has_sequential]]))
+  h.eq(false, child.lua_get([[_G.has_other]]))
+end
+
+T["manager"]["inherit mcp_servers"]["get_inherited_mcp_servers handles nil parent"] = function()
+  -- Test that get_inherited_mcp_servers handles nil parent gracefully
+  -- Intent: Verify empty list is returned when parent is nil
+  -- Ref: Plan Task 3, Step 1
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    
+    local servers = manager:get_inherited_mcp_servers(nil)
+    
+    _G.servers_empty = #servers == 0
+  ]])
+
+  h.eq(true, child.lua_get([[_G.servers_empty]]))
+end
+
+T["manager"]["inherit mcp_servers"]["get_inherited_mcp_servers handles missing tool_registry"] = function()
+  -- Test that get_inherited_mcp_servers handles missing tool_registry
+  -- Intent: Verify empty list is returned when parent has no tool_registry
+  -- Ref: Plan Task 3, Step 1
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    
+    local mock_parent_chat = {}
+    
+    local servers = manager:get_inherited_mcp_servers(mock_parent_chat)
+    
+    _G.servers_empty = #servers == 0
+  ]])
+
+  h.eq(true, child.lua_get([[_G.servers_empty]]))
+end
+
+T["manager"]["inherit mcp_servers"]["get_inherited_mcp_servers handles empty groups"] = function()
+  -- Test that get_inherited_mcp_servers handles empty groups table
+  -- Intent: Verify empty list is returned when parent has no groups
+  -- Ref: Plan Task 3, Step 1
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    
+    local mock_parent_chat = {
+      tool_registry = {
+        in_use = {},
+        groups = {},
+      },
+    }
+    
+    local servers = manager:get_inherited_mcp_servers(mock_parent_chat)
+    
+    _G.servers_empty = #servers == 0
+  ]])
+
+  h.eq(true, child.lua_get([[_G.servers_empty]]))
+end
+
+T["manager"]["inherit mcp_servers"]["get_inherited_mcp_servers filters non-mcp groups"] = function()
+  -- Test that get_inherited_mcp_servers filters non-MCP groups
+  -- Intent: Verify only groups with mcp: prefix are extracted
+  -- Ref: Plan Task 3, Step 1
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    
+    local mock_parent_chat = {
+      tool_registry = {
+        in_use = {},
+        groups = {
+          ["other_group"] = { "some_tool" },
+          ["another_group"] = { "another_tool" },
+        },
+      },
+    }
+    
+    local servers = manager:get_inherited_mcp_servers(mock_parent_chat)
+    
+    _G.servers_empty = #servers == 0
+  ]])
+
+  h.eq(true, child.lua_get([[_G.servers_empty]]))
+end
+
+T["manager"]["inherit integration"] = new_set()
+
+T["manager"]["inherit integration"]["inherits tools when set to inherit"] = function()
+  -- Test that start_subagent correctly inherits tools when set to "inherit"
+  -- Intent: Verify tools are inherited from parent chat and passed to Chat.new
+  -- Ref: Plan Task 5, Step 1
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+    
+    local captured_opts = nil
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      captured_opts = opts
+      return {
+        bufnr = 9999,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+    
+    -- 创建带有工具的 mock parent chat
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+      tool_registry = {
+        in_use = {
+          ["read_file"] = true,
+          ["grep_search"] = true,
+        },
+        groups = {},
+      },
+    }
+    
+    -- 使用 "inherit" 启动 subagent
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = "inherit",
+    }, "Task", {})
+    
+    Chat.new = original_new
+    
+    -- 验证继承的工具被传递给 Chat.new
+    _G.has_read_file = vim.tbl_contains(captured_opts.tools, "read_file")
+    _G.has_grep_search = vim.tbl_contains(captured_opts.tools, "grep_search")
+    _G.has_complete = vim.tbl_contains(captured_opts.tools, "complete_subagent")
+  ]])
+
+  h.eq(true, child.lua_get([[_G.has_read_file]]))
+  h.eq(true, child.lua_get([[_G.has_grep_search]]))
+  h.eq(true, child.lua_get([[_G.has_complete]]))
+end
+
+T["manager"]["inherit integration"]["inherits mcp_servers when set to inherit"] = function()
+  -- Test that start_subagent correctly inherits mcp_servers when set to "inherit"
+  -- Intent: Verify MCP servers are inherited from parent chat and passed to Chat.new
+  -- Ref: Plan Task 5, Step 1
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+    
+    local captured_opts = nil
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      captured_opts = opts
+      return {
+        bufnr = 9999,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+    
+    -- 创建带有 MCP 服务器的 mock parent chat
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+      tool_registry = {
+        in_use = {},
+        groups = {
+          ["mcp:tavily"] = { "tavily_search" },
+        },
+      },
+    }
+    
+    -- 使用 "inherit" 启动 subagent
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      mcp_servers = "inherit",
+    }, "Task", {})
+    
+    Chat.new = original_new
+    
+    -- 验证继承的 MCP 服务器被传递给 Chat.new
+    _G.mcp_servers = captured_opts.mcp_servers
+  ]])
+
+  local mcp_servers = child.lua_get([[_G.mcp_servers]])
+  h.eq({ "tavily" }, mcp_servers)
+end
+
+T["manager"]["inherit integration"]["inherits both tools and mcp_servers"] = function()
+  -- Test that start_subagent correctly inherits both tools and mcp_servers
+  -- Intent: Verify both tools and MCP servers can be inherited simultaneously
+  -- Ref: Plan Task 5, Step 1
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+    
+    local captured_opts = nil
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      captured_opts = opts
+      return {
+        bufnr = 9999,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+    
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+      tool_registry = {
+        in_use = {
+          ["read_file"] = true,
+        },
+        groups = {
+          ["mcp:tavily"] = { "tavily_search" },
+        },
+      },
+    }
+    
+    -- 同时继承 tools 和 mcp_servers
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = "inherit",
+      mcp_servers = "inherit",
+    }, "Task", {})
+    
+    Chat.new = original_new
+    
+    _G.has_read_file = vim.tbl_contains(captured_opts.tools, "read_file")
+    _G.mcp_servers = captured_opts.mcp_servers
+  ]])
+
+  h.eq(true, child.lua_get([[_G.has_read_file]]))
+  h.eq({ "tavily" }, child.lua_get([[_G.mcp_servers]]))
+end
+
+T["manager"]["inherit integration"]["handles inherit with empty parent tools"] = function()
+  -- Test that start_subagent handles inherit with empty parent tools
+  -- Intent: Verify complete_subagent is still included when inheriting empty tools
+  -- Ref: Plan Task 5, Step 1
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+    
+    local captured_opts = nil
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      captured_opts = opts
+      return {
+        bufnr = 9999,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+    
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+      tool_registry = {
+        in_use = {},
+        groups = {},
+      },
+    }
+    
+    -- 继承空工具列表
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = "inherit",
+    }, "Task", {})
+    
+    Chat.new = original_new
+    
+    -- 即使继承空列表，也应该有 complete_subagent
+    _G.has_complete = vim.tbl_contains(captured_opts.tools, "complete_subagent")
+    _G.tools_count = #captured_opts.tools
+  ]])
+
+  h.eq(true, child.lua_get([[_G.has_complete]]))
+  h.eq(1, child.lua_get([[_G.tools_count]]))
+end
+
+T["manager"]["system prompt handling"] = new_set()
+
+T["manager"]["system prompt handling"]["replace mode clears default and sets custom"] = function()
+  -- Test that replace mode clears default system prompt and sets custom one
+  -- Intent: Verify when replace_main_system_prompt = true, only custom system_prompt is used
+  -- Ref: Plan Task 3, Step 1
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+    
+    local set_system_prompt_calls = {}
+    local mock_chat_instance = {
+      bufnr = 9999,
+      _parent_chat = nil,
+      messages = {},
+      set_system_prompt = function(self, prompt, opts)
+        opts = opts or {}
+        table.insert(set_system_prompt_calls, {
+          prompt = prompt,
+          tag = opts._meta and opts._meta.tag,
+        })
+      end,
+      submit = function() end,
+    }
+    
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      return mock_chat_instance
+    end
+    
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+      tool_registry = { in_use = {}, groups = {} },
+    }
+    
+    -- Start subagent with replace_main_system_prompt = true
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Custom system prompt",
+      tools = {},
+      replace_main_system_prompt = true,
+    }, "Task", {})
+    
+    Chat.new = original_new
+    
+    _G.calls_count = #set_system_prompt_calls
+    _G.calls = set_system_prompt_calls
+  ]])
+
+  -- Should have 2 calls: clear default + set custom + context prompt
+  local calls_count = child.lua_get([[_G.calls_count]])
+  h.eq(3, calls_count)
+
+  local calls = child.lua_get([[_G.calls]])
+  -- First call: clear default (empty string)
+  h.eq("", calls[1].prompt)
+  -- Second call: custom system prompt
+  h.eq("Custom system prompt", calls[2].prompt)
+  h.eq("subagent_system_prompt", calls[2].tag)
+  -- Third call: context prompt
+  h.eq("subagent_base_prompt", calls[3].tag)
+end
+
+T["manager"]["system prompt handling"]["insert mode keeps default and adds custom"] = function()
+  -- Test that insert mode keeps default system prompt and adds custom one
+  -- Intent: Verify when replace_main_system_prompt = false, both default and custom prompts exist
+  -- Ref: Plan Task 3, Step 2
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+    
+    local set_system_prompt_calls = {}
+    local mock_chat_instance = {
+      bufnr = 9999,
+      _parent_chat = nil,
+      messages = {},
+      set_system_prompt = function(self, prompt, opts)
+        opts = opts or {}
+        table.insert(set_system_prompt_calls, {
+          prompt = prompt,
+          tag = opts._meta and opts._meta.tag,
+        })
+      end,
+      submit = function() end,
+    }
+    
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      return mock_chat_instance
+    end
+    
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+      tool_registry = { in_use = {}, groups = {} },
+    }
+    
+    -- Start subagent with replace_main_system_prompt = false (default)
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Custom system prompt",
+      tools = {},
+      replace_main_system_prompt = false,
+    }, "Task", {})
+    
+    Chat.new = original_new
+    
+    _G.calls_count = #set_system_prompt_calls
+    _G.calls = set_system_prompt_calls
+  ]])
+
+  -- Should have 2 calls: custom system prompt + context prompt (no clear)
+  local calls_count = child.lua_get([[_G.calls_count]])
+  h.eq(2, calls_count)
+
+  local calls = child.lua_get([[_G.calls]])
+  -- First call: custom system prompt
+  h.eq("Custom system prompt", calls[1].prompt)
+  h.eq("subagent_system_prompt", calls[1].tag)
+  -- Second call: context prompt
+  h.eq("subagent_base_prompt", calls[2].tag)
+end
+
+T["manager"]["system prompt handling"]["context prompt always injected"] = function()
+  -- Test that SubAgent context prompt is always injected
+  -- Intent: Verify context prompt is injected regardless of replace/insert mode
+  -- Ref: Plan Task 3, Step 3
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+    
+    local set_system_prompt_calls = {}
+    local mock_chat_instance = {
+      bufnr = 9999,
+      _parent_chat = nil,
+      messages = {},
+      set_system_prompt = function(self, prompt, opts)
+        opts = opts or {}
+        table.insert(set_system_prompt_calls, {
+          prompt = prompt,
+          tag = opts._meta and opts._meta.tag,
+        })
+      end,
+      submit = function() end,
+    }
+    
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      return mock_chat_instance
+    end
+    
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+      tool_registry = { in_use = {}, groups = {} },
+    }
+    
+    -- Start subagent without custom system_prompt
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = nil,
+      tools = {},
+    }, "Task", {})
+    
+    Chat.new = original_new
+    
+    _G.calls_count = #set_system_prompt_calls
+    _G.calls = set_system_prompt_calls
+  ]])
+
+  -- Should have 1 call: context prompt only
+  local calls_count = child.lua_get([[_G.calls_count]])
+  h.eq(1, calls_count)
+
+  local calls = child.lua_get([[_G.calls]])
+  -- Context prompt should be injected
+  h.eq("subagent_base_prompt", calls[1].tag)
+end
+
+T["manager"]["system prompt integration"] = new_set()
+
+T["manager"]["system prompt integration"]["full flow with replace mode"] = function()
+  -- Test complete system prompt flow from tool creation to Chat creation
+  -- Intent: Verify full integration with replace mode
+  -- Ref: Plan Task 5, Step 1
+  child.lua([[
+    local tool = require("codecompanion._extensions.subagents.tool")
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+    
+    local set_system_prompt_calls = {}
+    local captured_opts = nil
+    
+    local mock_chat_instance = {
+      bufnr = 9999,
+      _parent_chat = nil,
+      messages = {},
+      set_system_prompt = function(self, prompt, opts)
+        opts = opts or {}
+        table.insert(set_system_prompt_calls, {
+          prompt = prompt,
+          tag = opts._meta and opts._meta.tag,
+        })
+      end,
+      submit = function() end,
+    }
+    
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      captured_opts = opts
+      return mock_chat_instance
+    end
+    
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+      tool_registry = { in_use = {}, groups = {} },
+    }
+    
+    -- Create tool with replace mode
+    local tool_instance = tool.create_subagent_tool("custom_agent", {
+      description = "Custom agent",
+      system_prompt = "You are a specialized agent.",
+      tools = { "read_file" },
+      replace_main_system_prompt = true,
+    })
+    
+    -- Execute the tool
+    local mock_self = { chat = mock_parent_chat }
+    tool_instance.cmds[1](mock_self, { task = "Test task" }, {})
+    
+    Chat.new = original_new
+    
+    _G.calls_count = #set_system_prompt_calls
+    _G.calls = set_system_prompt_calls
+    _G.has_complete = vim.tbl_contains(captured_opts.tools, "complete_subagent")
+  ]])
+
+  local calls_count = child.lua_get([[_G.calls_count]])
+  h.eq(3, calls_count) -- clear + custom + context
+
+  local calls = child.lua_get([[_G.calls]])
+  h.eq("", calls[1].prompt) -- clear default
+  h.eq("You are a specialized agent.", calls[2].prompt)
+  h.eq("subagent_system_prompt", calls[2].tag)
+  h.eq("subagent_base_prompt", calls[3].tag)
+
+  h.eq(true, child.lua_get([[_G.has_complete]]))
+end
+
+T["manager"]["system prompt integration"]["full flow with insert mode"] = function()
+  -- Test complete system prompt flow with insert mode
+  -- Intent: Verify full integration with insert mode (default)
+  -- Ref: Plan Task 5, Step 1
+  child.lua([[
+    local tool = require("codecompanion._extensions.subagents.tool")
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+    
+    local set_system_prompt_calls = {}
+    local captured_opts = nil
+    
+    local mock_chat_instance = {
+      bufnr = 9999,
+      _parent_chat = nil,
+      messages = {},
+      set_system_prompt = function(self, prompt, opts)
+        opts = opts or {}
+        table.insert(set_system_prompt_calls, {
+          prompt = prompt,
+          tag = opts._meta and opts._meta.tag,
+        })
+      end,
+      submit = function() end,
+    }
+    
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      captured_opts = opts
+      return mock_chat_instance
+    end
+    
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+      tool_registry = { in_use = {}, groups = {} },
+    }
+    
+    -- Create tool with insert mode (default)
+    local tool_instance = tool.create_subagent_tool("custom_agent", {
+      description = "Custom agent",
+      system_prompt = "You are a specialized agent.",
+      tools = { "read_file" },
+      -- replace_main_system_prompt defaults to false
+    })
+    
+    -- Execute the tool
+    local mock_self = { chat = mock_parent_chat }
+    tool_instance.cmds[1](mock_self, { task = "Test task" }, {})
+    
+    Chat.new = original_new
+    
+    _G.calls_count = #set_system_prompt_calls
+    _G.calls = set_system_prompt_calls
+  ]])
+
+  local calls_count = child.lua_get([[_G.calls_count]])
+  h.eq(2, calls_count) -- custom + context (no clear)
+
+  local calls = child.lua_get([[_G.calls]])
+  h.eq("You are a specialized agent.", calls[1].prompt)
+  h.eq("subagent_system_prompt", calls[1].tag)
+  h.eq("subagent_base_prompt", calls[2].tag)
+end
+
+-- ============================================================================
+-- Context Mode Tests
+-- ============================================================================
+
+T["manager"]["get_inherited_messages"] = new_set()
+
+T["manager"]["get_inherited_messages"]["returns empty for nil parent"] = function()
+  -- Test that get_inherited_messages handles nil parent gracefully
+  -- Intent: Verify empty list is returned when parent is nil
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    
+    local messages = manager:get_inherited_messages(nil, "test_agent", "Task")
+    
+    _G.messages_empty = #messages == 0
+  ]])
+
+  h.eq(true, child.lua_get([[_G.messages_empty]]))
+end
+
+T["manager"]["get_inherited_messages"]["returns empty for parent without messages"] = function()
+  -- Test that get_inherited_messages handles parent without messages
+  -- Intent: Verify empty list is returned when parent has no messages
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    
+    local mock_parent_chat = {
+      id = "parent_chat",
+      messages = {},
+    }
+    
+    local messages = manager:get_inherited_messages(mock_parent_chat, "test_agent", "Task")
+    
+    _G.messages_empty = #messages == 0
+  ]])
+
+  h.eq(true, child.lua_get([[_G.messages_empty]]))
+end
+
+T["manager"]["get_inherited_messages"]["filters out system messages"] = function()
+  -- Test that get_inherited_messages filters out system messages
+  -- Intent: Verify system messages are removed from inherited messages
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    
+    local mock_parent_chat = {
+      id = "parent_chat",
+      messages = {
+        { role = "system", content = "System prompt" },
+        { role = "user", content = "User message" },
+        { role = "llm", content = "LLM response" },
+        { role = "system", content = "Another system" },
+      },
+    }
+    
+    local messages = manager:get_inherited_messages(mock_parent_chat, "test_agent", "Task")
+    
+    _G.messages_count = #messages
+    _G.all_non_system = true
+    for _, msg in ipairs(messages) do
+      if msg.role == "system" then
+        _G.all_non_system = false
+        break
+      end
+    end
+  ]])
+
+  h.eq(2, child.lua_get([[_G.messages_count]]))
+  h.eq(true, child.lua_get([[_G.all_non_system]]))
+end
+
+T["manager"]["get_inherited_messages"]["replaces tool call message"] = function()
+  -- Test that get_inherited_messages replaces tool call message with context
+  -- Intent: Verify tool call message is replaced with SubAgent context message
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    
+    local mock_parent_chat = {
+      id = "parent_chat",
+      messages = {
+        { role = "user", content = "Previous message" },
+        { role = "llm", content = "LLM response" },
+        {
+          role = "llm",
+          content = "",
+          tools = {
+            calls = {
+              {
+                id = "call_123",
+                ["function"] = {
+                  name = "subagent_test_agent",
+                  arguments = '{ "task": "Do something" }',
+                },
+              },
+            },
+          },
+        },
+      },
+    }
+    
+    local messages = manager:get_inherited_messages(mock_parent_chat, "test_agent", "New task")
+    
+    _G.messages_count = #messages
+    _G.last_message = messages[#messages].content
+    _G.last_role = messages[#messages].role
+    _G.has_task = messages[#messages].content:find("New task") ~= nil
+  ]])
+
+  h.eq(3, child.lua_get([[_G.messages_count]]))
+  h.eq("user", child.lua_get([[_G.last_role]]))
+  h.eq(true, child.lua_get([[_G.has_task]]))
+end
+
+T["manager"]["get_inherited_messages"]["handles missing tool call"] = function()
+  -- Test that get_inherited_messages handles missing tool call gracefully
+  -- Intent: Verify messages are still returned when tool call is not found
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    
+    local mock_parent_chat = {
+      id = "parent_chat",
+      messages = {
+        { role = "user", content = "User message" },
+        { role = "llm", content = "LLM response" },
+      },
+    }
+    
+    local messages = manager:get_inherited_messages(mock_parent_chat, "test_agent", "Task")
+    
+    _G.messages_count = #messages
+    _G.first_content = messages[1].content
+  ]])
+
+  h.eq(2, child.lua_get([[_G.messages_count]]))
+  h.eq("User message", child.lua_get([[_G.first_content]]))
+end
+
+-- ============================================================================
+-- Context Mode Integration Tests
+-- ============================================================================
+
+T["manager"]["context_mode"] = new_set()
+
+T["manager"]["context_mode"]["explicit mode includes context parameter"] = function()
+  -- Test that explicit mode includes context parameter in schema
+  -- Intent: Verify context parameter is present in tool schema for explicit mode
+  child.lua([[
+    local tool = require("codecompanion._extensions.subagents.tool")
+    
+    local tool_instance = tool.create_subagent_tool("test_agent", {
+      description = "Test agent",
+      system_prompt = "Test",
+      context_mode = "explicit",
+      context_spec = "Files to analyze",
+      tools = {},
+    })
+    
+    local props = tool_instance.schema["function"].parameters.properties
+    _G.has_task = props.task ~= nil
+    _G.has_context = props.context ~= nil
+    _G.context_desc = props.context and props.context.description
+  ]])
+
+  h.eq(true, child.lua_get([[_G.has_task]]))
+  h.eq(true, child.lua_get([[_G.has_context]]))
+  h.eq("Files to analyze", child.lua_get([[_G.context_desc]]))
+end
+
+T["manager"]["context_mode"]["inherit mode excludes context parameter"] = function()
+  -- Test that inherit mode excludes context parameter from schema
+  -- Intent: Verify context parameter is not present in tool schema for inherit mode
+  child.lua([[
+    local tool = require("codecompanion._extensions.subagents.tool")
+    
+    local tool_instance = tool.create_subagent_tool("test_agent", {
+      description = "Test agent",
+      system_prompt = "Test",
+      context_mode = "inherit",
+      tools = {},
+    })
+    
+    local props = tool_instance.schema["function"].parameters.properties
+    _G.has_task = props.task ~= nil
+    _G.has_context = props.context ~= nil
+  ]])
+
+  h.eq(true, child.lua_get([[_G.has_task]]))
+  h.eq(false, child.lua_get([[_G.has_context]]))
+end
+
+T["manager"]["context_mode"]["default mode is explicit"] = function()
+  -- Test that default context_mode is explicit
+  -- Intent: Verify context parameter is present when context_mode is not specified
+  child.lua([[
+    local tool = require("codecompanion._extensions.subagents.tool")
+    
+    local tool_instance = tool.create_subagent_tool("test_agent", {
+      description = "Test agent",
+      system_prompt = "Test",
+      tools = {},
+    })
+    
+    local props = tool_instance.schema["function"].parameters.properties
+    _G.has_context = props.context ~= nil
+  ]])
+
+  h.eq(true, child.lua_get([[_G.has_context]]))
+end
+
+T["manager"]["context_mode"]["inherit mode uses inherited messages"] = function()
+  -- Test that inherit mode uses inherited messages
+  -- Intent: Verify messages are inherited from parent chat in inherit mode
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+    
+    local captured_opts = nil
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      captured_opts = opts
+      return {
+        bufnr = 9999,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+    
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+      tool_registry = { in_use = {}, groups = {} },
+      messages = {
+        { role = "user", content = "Previous message" },
+        { role = "llm", content = "LLM response" },
+      },
+    }
+    
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      context_mode = "inherit",
+    }, "New task", nil)
+    
+    Chat.new = original_new
+    
+    _G.messages_count = #captured_opts.messages
+    _G.has_previous = captured_opts.messages[1].content == "Previous message"
+  ]])
+
+  h.eq(2, child.lua_get([[_G.messages_count]]))
+  h.eq(true, child.lua_get([[_G.has_previous]]))
+end
+
+-- ============================================================================
+-- Result Spec Tests
+-- ============================================================================
+
+T["manager"]["result_spec"] = new_set()
+
+T["manager"]["result_spec"]["injects result_spec into task"] = function()
+  -- Test that result_spec is injected into task message
+  -- Intent: Verify result_spec is appended to the last user message
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+    
+    local captured_opts = nil
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      captured_opts = opts
+      return {
+        bufnr = 9999,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+    
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+      tool_registry = { in_use = {}, groups = {} },
+    }
+    
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      result_spec = "Return a JSON object with status and message",
+    }, "Do something", nil)
+    
+    Chat.new = original_new
+    
+    local content = captured_opts.messages[1].content
+    _G.has_task = content:find("Do something") ~= nil
+    _G.has_result_spec = content:find("Expected Result") ~= nil
+    _G.has_json = content:find("JSON object") ~= nil
+  ]])
+
+  h.eq(true, child.lua_get([[_G.has_task]]))
+  h.eq(true, child.lua_get([[_G.has_result_spec]]))
+  h.eq(true, child.lua_get([[_G.has_json]]))
+end
+
+T["manager"]["result_spec"]["injects result_spec in inherit mode"] = function()
+  -- Test that result_spec is injected in inherit mode
+  -- Intent: Verify result_spec is appended to inherited messages
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+    
+    local captured_opts = nil
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      captured_opts = opts
+      return {
+        bufnr = 9999,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+    
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+      tool_registry = { in_use = {}, groups = {} },
+      messages = {
+        { role = "user", content = "Previous message" },
+        { role = "llm", content = "LLM response" },
+      },
+    }
+    
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      context_mode = "inherit",
+      result_spec = "Return a summary",
+    }, "New task", nil)
+    
+    Chat.new = original_new
+    
+    -- Find the last user message
+    local last_user_content = nil
+    for i = #captured_opts.messages, 1, -1 do
+      if captured_opts.messages[i].role == "user" then
+        last_user_content = captured_opts.messages[i].content
+        break
+      end
+    end
+    
+    _G.has_result_spec = last_user_content and last_user_content:find("Expected Result") ~= nil
+    _G.has_summary = last_user_content and last_user_content:find("Return a summary") ~= nil
+  ]])
+
+  h.eq(true, child.lua_get([[_G.has_result_spec]]))
+  h.eq(true, child.lua_get([[_G.has_summary]]))
+end
+
+T["manager"]["result_spec"]["no injection when result_spec is nil"] = function()
+  -- Test that no result_spec is injected when not specified
+  -- Intent: Verify task message is unchanged when result_spec is nil
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+    
+    local captured_opts = nil
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      captured_opts = opts
+      return {
+        bufnr = 9999,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+    
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+      tool_registry = { in_use = {}, groups = {} },
+    }
+    
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      -- result_spec not specified
+    }, "Do something", nil)
+    
+    Chat.new = original_new
+    
+    local content = captured_opts.messages[1].content
+    _G.no_result_spec = content:find("Expected Result") == nil
+    _G.just_task = content == "Do something"
+  ]])
+
+  h.eq(true, child.lua_get([[_G.no_result_spec]]))
+  h.eq(true, child.lua_get([[_G.just_task]]))
+end
+
+-- ============================================================================
+-- context_spec Tests
+-- ============================================================================
+
+T["manager"]["context_spec"] = new_set()
+
+T["manager"]["context_spec"]["uses context_spec in schema"] = function()
+  -- Test that context_spec is used in schema description
+  -- Intent: Verify context_spec is used as context parameter description
+  child.lua([[
+    local tool = require("codecompanion._extensions.subagents.tool")
+    
+    local tool_instance = tool.create_subagent_tool("code_reviewer", {
+      description = "Code reviewer",
+      system_prompt = "You are a code reviewer.",
+      context_spec = "The code files to review, including file paths",
+      tools = {},
+    })
+    
+    local desc = tool_instance.schema["function"].parameters.properties.context.description
+    _G.has_spec = desc == "The code files to review, including file paths"
+  ]])
+
+  h.eq(true, child.lua_get([[_G.has_spec]]))
+end
+
+T["manager"]["context_spec"]["uses default when not specified"] = function()
+  -- Test that default description is used when not specified
+  -- Intent: Verify fallback to default description
+  child.lua([[
+    local tool = require("codecompanion._extensions.subagents.tool")
+    
+    local tool_instance = tool.create_subagent_tool("test_agent", {
+      description = "Test agent",
+      system_prompt = "Test",
+      tools = {},
+    })
+    
+    local desc = tool_instance.schema["function"].parameters.properties.context.description
+    _G.has_default = desc == "Additional context for the task"
+  ]])
+
+  h.eq(true, child.lua_get([[_G.has_default]]))
+end
+
 return T

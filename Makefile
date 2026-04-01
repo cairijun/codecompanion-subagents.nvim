@@ -36,6 +36,9 @@ deps/codecompanion.nvim:
 	@mkdir -p deps
 	git clone --filter=blob:none https://github.com/olimorris/codecompanion.nvim $@
 
+format:
+	stylua tests/ lua/
+
 # Clean dependencies
 clean:
 	rm -rf deps/

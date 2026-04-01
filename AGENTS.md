@@ -21,9 +21,16 @@ CodeCompanion.nvim extension that adds SubAgent support, allowing the main agent
 - **Explicit completion**: Subagents must call `complete_subagent` to return results, ensuring clear task boundaries and result flow
 * **Configuration**: Subagents are configured in `extensions.subagents.opts.subagents`
 
-## Testing
+## Coding Conventions
+Use English for all code comments, string literals, and documentation.
+
+## Development
 
 ```bash
+# Run all tests
 make test
+# Run specific test file
 make test_file FILE=tests/test_manager.lua
+# Format code
+make format
 ```

@@ -56,14 +56,14 @@ T["tool"]["schema has correct structure"] = function()
   h.eq(true, child.lua_get([[_G.has_task_param]]))
 end
 
-T["tool"]["uses custom context_description"] = function()
+T["tool"]["uses custom context_spec"] = function()
   child.lua([[
     local tool = require("codecompanion._extensions.subagents.tool")
     
     local t = tool.create_subagent_tool("agent", {
       description = "Agent",
       system_prompt = "Be helpful",
-      context_description = "Custom context info",
+      context_spec = "Custom context info",
     })
     
     _G.context_desc = t.schema["function"].parameters.properties.context.description
@@ -131,7 +131,7 @@ T["tool"]["cmds signature"] = function()
     tool_instance.cmds[1](mock_self, { task = "Test task" }, mock_opts)
     
     -- Manually set subagent_chat to simulate successful creation
-    mock_chat._subagents.subagent_chat = { bufnr = 9999 }
+    mock_chat._subagents.subagent_chat = { bufnr = 9999, ui = { hide = function() end } }
     
     -- Simulate completion to trigger output_cb
     manager:complete_subagent(mock_chat, "Task completed")
@@ -356,7 +356,7 @@ T["tool"]["result flow"]["returns result to main chat"] = function()
     
     -- Manually set subagent_chat to simulate successful creation
     -- (since we can't create a real Chat without full setup)
-    mock_chat._subagents.subagent_chat = { bufnr = 9999 }
+    mock_chat._subagents.subagent_chat = { bufnr = 9999, ui = { hide = function() end } }
     
     -- Verify subagent is active
     _G.subagent_active_before = manager:is_active(mock_chat)
@@ -424,7 +424,7 @@ T["tool"]["result flow"]["handles error result"] = function()
     tool_instance.cmds[1](mock_self, { task = "Test task" }, mock_input)
     
     -- Manually set subagent_chat to simulate successful creation
-    mock_chat._subagents.subagent_chat = { bufnr = 9999 }
+    mock_chat._subagents.subagent_chat = { bufnr = 9999, ui = { hide = function() end } }
     
     -- Simulate error completion
     manager:complete_subagent(mock_chat, "Error: Something went wrong", true)
@@ -436,6 +436,102 @@ T["tool"]["result flow"]["handles error result"] = function()
   local captured = child.lua_get([[_G.captured]])
   h.eq("error", captured.status)
   h.eq("Error: Something went wrong", captured.data)
+end
+
+T["tool"]["replace_main_system_prompt config"] = new_set()
+
+T["tool"]["replace_main_system_prompt config"]["passes replace_main_system_prompt to manager"] = function()
+  -- Test that replace_main_system_prompt config is passed to manager:start_subagent
+  -- Intent: Verify SubAgent config's replace_main_system_prompt field is correctly passed to manager
+  -- Ref: Plan Task 2, Step 1
+  child.lua([[
+    local tool = require("codecompanion._extensions.subagents.tool")
+    local manager = require("codecompanion._extensions.subagents.manager")
+    
+    -- Create a mock parent chat
+    local mock_chat = {
+      id = "parent_chat",
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+    }
+    
+    -- Capture what was passed to start_subagent
+    local captured_config = nil
+    local original_start = manager.start_subagent
+    manager.start_subagent = function(self, chat, config, task, context)
+      captured_config = config
+    end
+    
+    -- Create tool instance with replace_main_system_prompt = true
+    local tool_instance = tool.create_subagent_tool("test_agent", {
+      description = "Test",
+      system_prompt = "Test",
+      tools = { "read_file" },
+      replace_main_system_prompt = true,
+    })
+    
+    -- Execute the tool command
+    local mock_self = { chat = mock_chat }
+    tool_instance.cmds[1](mock_self, { task = "Test task" }, {})
+    
+    -- Restore original
+    manager.start_subagent = original_start
+    
+    -- Verify replace_main_system_prompt was passed
+    _G.has_replace_flag = captured_config.replace_main_system_prompt ~= nil
+    _G.replace_flag_value = captured_config.replace_main_system_prompt
+  ]])
+
+  h.eq(true, child.lua_get([[_G.has_replace_flag]]))
+  h.eq(true, child.lua_get([[_G.replace_flag_value]]))
+end
+
+T["tool"]["replace_main_system_prompt config"]["defaults to false when not specified"] = function()
+  -- Test that replace_main_system_prompt defaults to false
+  -- Intent: Verify default value is false when not specified in config
+  -- Ref: Plan Task 2, Step 1
+  child.lua([[
+    local tool = require("codecompanion._extensions.subagents.tool")
+    local manager = require("codecompanion._extensions.subagents.manager")
+    
+    local mock_chat = {
+      id = "parent_chat",
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+    }
+    
+    local captured_config = nil
+    local original_start = manager.start_subagent
+    manager.start_subagent = function(self, chat, config, task, context)
+      captured_config = config
+    end
+    
+    -- Create tool instance WITHOUT replace_main_system_prompt
+    local tool_instance = tool.create_subagent_tool("test_agent", {
+      description = "Test",
+      system_prompt = "Test",
+      tools = { "read_file" },
+      -- replace_main_system_prompt is not specified
+    })
+    
+    local mock_self = { chat = mock_chat }
+    tool_instance.cmds[1](mock_self, { task = "Test task" }, {})
+    
+    manager.start_subagent = original_start
+    
+    -- Default should be false
+    _G.replace_flag_value = captured_config.replace_main_system_prompt
+  ]])
+
+  h.eq(false, child.lua_get([[_G.replace_flag_value]]))
 end
 
 return T

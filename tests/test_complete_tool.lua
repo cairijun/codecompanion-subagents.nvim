@@ -42,7 +42,7 @@ T["complete_tool"]["cmds function calls manager"] = function()
     local mock_parent_chat = {
       id = "parent_chat",
       _subagents = {
-        subagent_chat = { name = "test" },
+        subagent_chat = { name = "test", ui = { hide = function() end } },
       },
     }
     
@@ -53,11 +53,10 @@ T["complete_tool"]["cmds function calls manager"] = function()
     }
     
     _G.result_captured = nil
-    _G.output_msg = nil
     
-    -- Use opts parameter with output_cb
+    -- Use opts parameter with output_cb (no longer called on success)
     local mock_opts = {
-      output_cb = function(msg) _G.output_msg = msg end
+      output_cb = function(msg) end
     }
     
     -- Create mock self with subagent chat
@@ -68,11 +67,9 @@ T["complete_tool"]["cmds function calls manager"] = function()
     tool.cmds[1](mock_self, { result = "Test result" }, mock_opts)
     
     _G.result_captured = mock_parent_chat._subagents.pending_result
-    _G.output_status = _G.output_msg and _G.output_msg.status
   ]])
 
   h.eq("Test result", child.lua_get([[_G.result_captured]]))
-  h.eq("success", child.lua_get([[_G.output_status]]))
 end
 
 T["complete_tool"]["handles missing result"] = function()
@@ -84,7 +81,7 @@ T["complete_tool"]["handles missing result"] = function()
     local mock_parent_chat = {
       id = "parent_chat",
       _subagents = {
-        subagent_chat = { name = "test" },
+        subagent_chat = { name = "test", ui = { hide = function() end } },
         pending_result = nil,
       },
     }
