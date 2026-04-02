@@ -240,6 +240,12 @@ function M:start_subagent(parent_chat, subagent_config, task, context)
     mcp_servers = self:get_inherited_mcp_servers(parent_chat)
   end
 
+  -- Adapter: nil or "inherit" falls back to parent chat's adapter
+  local adapter = subagent_config.adapter
+  if adapter == nil or adapter == "inherit" then
+    adapter = parent_chat.adapter
+  end
+
   -- Hide parent chat UI
   if parent_chat and parent_chat.ui then
     parent_chat.ui:hide()
@@ -304,7 +310,7 @@ function M:start_subagent(parent_chat, subagent_config, task, context)
     mcp_servers
   )
   local ok, subagent_chat = pcall(Chat.new, {
-    adapter = parent_chat.adapter,
+    adapter = adapter,
     title = string.format("SubAgent: %s", subagent_config.name),
     tools = filtered_tools,
     mcp_servers = mcp_servers,

@@ -1864,4 +1864,162 @@ T["manager"]["context_spec"]["uses default when not specified"] = function()
   h.eq(true, child.lua_get([[_G.has_default]]))
 end
 
+T["manager"]["adapter"] = new_set()
+
+T["manager"]["adapter"]["inherits parent adapter when nil"] = function()
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+
+    local captured_opts = nil
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      captured_opts = opts
+      return {
+        bufnr = 9999,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+
+    local parent_adapter = { name = "parent_adapter" }
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = parent_adapter,
+      ui = { hide = function() end, open = function() end },
+    }
+
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      -- adapter not specified
+    }, "Task", {})
+
+    Chat.new = original_new
+
+    _G.adapter_name = captured_opts.adapter.name
+  ]])
+
+  h.eq("parent_adapter", child.lua_get([[_G.adapter_name]]))
+end
+
+T["manager"]["adapter"]["inherits parent adapter when set to inherit"] = function()
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+
+    local captured_opts = nil
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      captured_opts = opts
+      return {
+        bufnr = 9999,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+
+    local parent_adapter = { name = "parent_adapter" }
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = parent_adapter,
+      ui = { hide = function() end, open = function() end },
+    }
+
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      adapter = "inherit",
+    }, "Task", {})
+
+    Chat.new = original_new
+
+    _G.adapter_name = captured_opts.adapter.name
+  ]])
+
+  h.eq("parent_adapter", child.lua_get([[_G.adapter_name]]))
+end
+
+T["manager"]["adapter"]["uses custom adapter string"] = function()
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+
+    local captured_opts = nil
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      captured_opts = opts
+      return {
+        bufnr = 9999,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = { name = "parent_adapter" },
+      ui = { hide = function() end, open = function() end },
+    }
+
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      adapter = "openai",
+    }, "Task", {})
+
+    Chat.new = original_new
+
+    _G.adapter_value = captured_opts.adapter
+  ]])
+
+  h.eq("openai", child.lua_get([[_G.adapter_value]]))
+end
+
+T["manager"]["adapter"]["uses custom adapter table with model"] = function()
+  child.lua([[
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+
+    local captured_opts = nil
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      captured_opts = opts
+      return {
+        bufnr = 9999,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = { name = "parent_adapter" },
+      ui = { hide = function() end, open = function() end },
+    }
+
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      adapter = { name = "openai", model = "gpt-4o" },
+    }, "Task", {})
+
+    Chat.new = original_new
+
+    _G.adapter_value = captured_opts.adapter
+  ]])
+
+  local adapter = child.lua_get([[_G.adapter_value]])
+  h.eq("openai", adapter.name)
+  h.eq("gpt-4o", adapter.model)
+end
+
 return T
