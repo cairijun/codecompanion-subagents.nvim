@@ -490,6 +490,142 @@ T["tool"]["replace_main_system_prompt config"]["passes replace_main_system_promp
   h.eq(true, child.lua_get([[_G.replace_flag_value]]))
 end
 
+T["tool"]["adapter config"] = new_set()
+
+T["tool"]["adapter config"]["passes adapter string to manager"] = function()
+  child.lua([[
+    local tool = require("codecompanion._extensions.subagents.tool")
+    local manager = require("codecompanion._extensions.subagents.manager")
+
+    local mock_chat = {
+      id = "parent_chat",
+      adapter = { name = "test_adapter" },
+      ui = { hide = function() end, open = function() end },
+    }
+
+    local captured_config = nil
+    local original_start = manager.start_subagent
+    manager.start_subagent = function(self, chat, config, task, context)
+      captured_config = config
+    end
+
+    local tool_instance = tool.create_subagent_tool("test_agent", {
+      description = "Test",
+      system_prompt = "Test",
+      adapter = "openai",
+    })
+
+    local mock_self = { chat = mock_chat }
+    tool_instance.cmds[1](mock_self, { task = "Test task" }, {})
+    manager.start_subagent = original_start
+
+    _G.adapter_value = captured_config.adapter
+  ]])
+
+  h.eq("openai", child.lua_get([[_G.adapter_value]]))
+end
+
+T["tool"]["adapter config"]["passes adapter table to manager"] = function()
+  child.lua([[
+    local tool = require("codecompanion._extensions.subagents.tool")
+    local manager = require("codecompanion._extensions.subagents.manager")
+
+    local mock_chat = {
+      id = "parent_chat",
+      adapter = { name = "test_adapter" },
+      ui = { hide = function() end, open = function() end },
+    }
+
+    local captured_config = nil
+    local original_start = manager.start_subagent
+    manager.start_subagent = function(self, chat, config, task, context)
+      captured_config = config
+    end
+
+    local tool_instance = tool.create_subagent_tool("test_agent", {
+      description = "Test",
+      system_prompt = "Test",
+      adapter = { name = "openai", model = "gpt-4o" },
+    })
+
+    local mock_self = { chat = mock_chat }
+    tool_instance.cmds[1](mock_self, { task = "Test task" }, {})
+    manager.start_subagent = original_start
+
+    _G.adapter_value = captured_config.adapter
+  ]])
+
+  local adapter = child.lua_get([[_G.adapter_value]])
+  h.eq("openai", adapter.name)
+  h.eq("gpt-4o", adapter.model)
+end
+
+T["tool"]["adapter config"]["passes nil adapter to manager when not specified"] = function()
+  child.lua([[
+    local tool = require("codecompanion._extensions.subagents.tool")
+    local manager = require("codecompanion._extensions.subagents.manager")
+
+    local mock_chat = {
+      id = "parent_chat",
+      adapter = { name = "test_adapter" },
+      ui = { hide = function() end, open = function() end },
+    }
+
+    local captured_config = nil
+    local original_start = manager.start_subagent
+    manager.start_subagent = function(self, chat, config, task, context)
+      captured_config = config
+    end
+
+    local tool_instance = tool.create_subagent_tool("test_agent", {
+      description = "Test",
+      system_prompt = "Test",
+      -- adapter not specified
+    })
+
+    local mock_self = { chat = mock_chat }
+    tool_instance.cmds[1](mock_self, { task = "Test task" }, {})
+    manager.start_subagent = original_start
+
+    _G.adapter_is_nil = captured_config.adapter == nil or captured_config.adapter == vim.NIL
+  ]])
+
+  h.eq(true, child.lua_get([[_G.adapter_is_nil]]))
+end
+
+T["tool"]["adapter config"]["passes inherit string to manager"] = function()
+  child.lua([[
+    local tool = require("codecompanion._extensions.subagents.tool")
+    local manager = require("codecompanion._extensions.subagents.manager")
+
+    local mock_chat = {
+      id = "parent_chat",
+      adapter = { name = "test_adapter" },
+      ui = { hide = function() end, open = function() end },
+    }
+
+    local captured_config = nil
+    local original_start = manager.start_subagent
+    manager.start_subagent = function(self, chat, config, task, context)
+      captured_config = config
+    end
+
+    local tool_instance = tool.create_subagent_tool("test_agent", {
+      description = "Test",
+      system_prompt = "Test",
+      adapter = "inherit",
+    })
+
+    local mock_self = { chat = mock_chat }
+    tool_instance.cmds[1](mock_self, { task = "Test task" }, {})
+    manager.start_subagent = original_start
+
+    _G.adapter_value = captured_config.adapter
+  ]])
+
+  h.eq("inherit", child.lua_get([[_G.adapter_value]]))
+end
+
 T["tool"]["replace_main_system_prompt config"]["defaults to false when not specified"] = function()
   -- Test that replace_main_system_prompt defaults to false
   -- Intent: Verify default value is false when not specified in config

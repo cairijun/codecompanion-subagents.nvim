@@ -46,6 +46,7 @@ Each subagent requires the following fields:
 | `mcp_servers` | string[] or "inherit" | No | List of MCP server names to use. Use "inherit" to inherit from parent agent. |
 | `context_mode` | "explicit" or "inherit" | No | Context mode: "explicit" (default) passes context as parameter; "inherit" inherits message history from parent chat. |
 | `context_spec` | string | No | Description of what context is needed (used in `context_mode="explicit"`) |
+| `adapter` | string, table, or "inherit" | No | Adapter for the subagent. Use a string name (e.g., `"anthropic"`), a table with name and model (e.g., `{ name = "openai", model = "gpt-4o" }`), or `"inherit"` to use the parent chat's adapter (default when omitted). |
 
 ### Example Configuration
 
@@ -90,6 +91,14 @@ Your workflow:
 - Citations with links to sources (or file references for codebase research)
 - Confidence levels for key claims (high/medium/low)
 - Suggestions for further investigation if applicable]],
+          },
+          -- Use a cheaper/faster model for simple summarization tasks
+          summarizer = {
+            description = "Summarizes text or documents concisely",
+            system_prompt = "You are a concise summarizer. Extract the key points and present them clearly.",
+            adapter = { name = "anthropic", model = "claude-haiku-4-5-20251001" },
+            context_spec = "The text or document to summarize",
+            result_spec = "A concise bullet-point summary of the key points",
           },
         },
       },

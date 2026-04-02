@@ -22,6 +22,7 @@ function M.create_subagent_tool(name, config)
   -- result_spec: describes what result format is expected
   local result_spec = config.result_spec
   local replace_main_system_prompt = config.replace_main_system_prompt or false
+  local adapter = config.adapter
 
   -- Build schema properties based on context_mode
   local schema_properties = {
@@ -54,6 +55,7 @@ function M.create_subagent_tool(name, config)
           replace_main_system_prompt = replace_main_system_prompt,
           context_mode = context_mode,
           result_spec = result_spec,
+          adapter = adapter,
         }, args.task, args.context)
 
         -- Store completion callback in chat object
