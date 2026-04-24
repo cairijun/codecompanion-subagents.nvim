@@ -3,6 +3,11 @@
 
 local M = {}
 
+local log = require("codecompanion.utils.log")
+
+-- Valid approval modes for subagent tool approval state management
+local valid_approval_modes = { isolated = true, inherit = true, shared = true }
+
 ---Create a tool definition for a subagent
 ---@param name string The name of the subagent
 ---@param config table Subagent configuration with description, system_prompt, tools, etc.
@@ -23,6 +28,13 @@ function M.create_subagent_tool(name, config)
   local result_spec = config.result_spec
   local replace_main_system_prompt = config.replace_main_system_prompt or false
   local adapter = config.adapter
+
+  -- Approval mode determines how tool approval state is managed:
+  local approval_mode = config.approval_mode or "isolated"
+  if not valid_approval_modes[approval_mode] then
+    log:warn("Invalid approval_mode '%s', falling back to 'isolated'", approval_mode)
+    approval_mode = "isolated"
+  end
 
   -- Build schema properties based on context_mode
   local schema_properties = {
@@ -56,6 +68,7 @@ function M.create_subagent_tool(name, config)
           context_mode = context_mode,
           result_spec = result_spec,
           adapter = adapter,
+          approval_mode = approval_mode,
         }, args.task, args.context)
 
         -- Store completion callback in chat object keyed by subagent_id

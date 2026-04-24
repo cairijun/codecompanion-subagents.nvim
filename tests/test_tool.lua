@@ -673,4 +673,150 @@ T["tool"]["replace_main_system_prompt config"]["defaults to false when not speci
   h.eq(false, child.lua_get([[_G.replace_flag_value]]))
 end
 
+
+T["tool"]["approval_mode"] = new_set()
+
+T["tool"]["approval_mode"]["defaults to isolated"] = function()
+  -- Test that approval_mode defaults to "isolated" when not specified
+  -- Intent: Verify default value is "isolated" when not specified in config
+  child.lua([[  
+    local tool = require("codecompanion._extensions.subagents.tool")
+    local manager = require("codecompanion._extensions.subagents.manager")
+
+    local mock_chat = {
+      id = "parent_chat",
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+    }
+
+    local captured_config = nil
+    local original_start = manager.start_subagent
+    manager.start_subagent = function(self, chat, config, task, context)
+      captured_config = config
+    end
+
+    -- Create tool instance WITHOUT approval_mode
+    local tool_instance = tool.create_subagent_tool("test_agent", {
+      description = "Test",
+      system_prompt = "Test",
+      tools = {},
+    })
+
+    local mock_self = { chat = mock_chat }
+    tool_instance.cmds[1](mock_self, { task = "Test task" }, {})
+
+    manager.start_subagent = original_start
+
+    _G.approval_mode = captured_config.approval_mode
+  ]])
+
+  h.eq("isolated", child.lua_get("_G.approval_mode"))
+end
+
+T["tool"]["approval_mode"]["invalid value falls back"] = function()
+  child.lua([[  
+    local tool = require("codecompanion._extensions.subagents.tool")
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local log = require("codecompanion.utils.log")
+
+    local mock_chat = {
+      id = "parent_chat",
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+    }
+
+    local captured_config = nil
+    local original_start = manager.start_subagent
+    manager.start_subagent = function(self, chat, config, task, context)
+      captured_config = config
+    end
+
+    -- Mock log:warn to capture warning
+    local warn_called = false
+    local original_warn = log.warn
+    log.warn = function(...)
+      warn_called = true
+    end
+
+    -- Create tool instance with invalid approval_mode
+    local tool_instance = tool.create_subagent_tool("test_agent", {
+      description = "Test",
+      system_prompt = "Test",
+      tools = {},
+      approval_mode = "invalid",
+    })
+
+    local mock_self = { chat = mock_chat }
+    tool_instance.cmds[1](mock_self, { task = "Test task" }, {})
+
+    manager.start_subagent = original_start
+    log.warn = original_warn
+
+    _G.approval_mode = captured_config.approval_mode
+    _G.warn_called = warn_called
+  ]])
+
+  h.eq("isolated", child.lua_get("_G.approval_mode"))
+  h.eq(true, child.lua_get("_G.warn_called"))
+end
+
+T["tool"]["approval_mode"]["explicit values passed through"] = function()
+  child.lua([[  
+    local tool = require("codecompanion._extensions.subagents.tool")
+    local manager = require("codecompanion._extensions.subagents.manager")
+
+    local mock_chat = {
+      id = "parent_chat",
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+    }
+
+    local captured_configs = {}
+    local original_start = manager.start_subagent
+    local call_count = 0
+    manager.start_subagent = function(self, chat, config, task, context)
+      call_count = call_count + 1
+      captured_configs[call_count] = config
+    end
+
+    -- Test "inherit"
+    local tool1 = tool.create_subagent_tool("agent1", {
+      description = "Test",
+      system_prompt = "Test",
+      tools = {},
+      approval_mode = "inherit",
+    })
+    tool1.cmds[1]({ chat = mock_chat }, { task = "Task" }, {})
+
+    -- Test "shared"
+    local tool2 = tool.create_subagent_tool("agent2", {
+      description = "Test",
+      system_prompt = "Test",
+      tools = {},
+      approval_mode = "shared",
+    })
+    tool2.cmds[1]({ chat = mock_chat }, { task = "Task" }, {})
+
+    manager.start_subagent = original_start
+
+    _G.inherit_mode = captured_configs[1].approval_mode
+    _G.shared_mode = captured_configs[2].approval_mode
+  ]])
+
+  h.eq("inherit", child.lua_get("_G.inherit_mode"))
+  h.eq("shared", child.lua_get("_G.shared_mode"))
+end
+
 return T
