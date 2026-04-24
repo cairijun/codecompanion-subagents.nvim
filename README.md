@@ -47,6 +47,7 @@ Each subagent requires the following fields:
 | `context_mode` | "explicit" or "inherit" | No | Context mode: "explicit" (default) passes context as parameter; "inherit" inherits message history from parent chat. |
 | `context_spec` | string | No | Description of what context is needed (used in `context_mode="explicit"`) |
 | `adapter` | string, table, or "inherit" | No | Adapter for the subagent. Use a string name (e.g., `"anthropic"`), a table with name and model (e.g., `{ name = "openai", model = "gpt-4o" }`), or `"inherit"` to use the parent chat's adapter (default when omitted). |
+| `approval_mode` | `"isolated"`, `"inherit"`, or `"shared"` | No | How tool approval state is managed. `"isolated"` (default): SubAgent starts with no pre-approved tools. `"inherit"`: deep-copies parent's approval state at startup, then operates independently. `"shared"`: shares the same approval table with parent bidirectionally. |
 
 ### Example Configuration
 
@@ -116,6 +117,16 @@ A subagent will available as a tool named `subagent_{subagent_name}`. You can as
 - `Use @{subagent_reviewer} to review current code changes`
 
 The main agent will delegate the task to the appropriate subagent, which will execute with its specialized system prompt and tool set, then return results back to the main conversation.
+
+### Approval Modes
+
+SubAgents support three approval modes to control whether tool approvals are shared with the parent agent:
+
+| Mode | Behavior |
+|------|----------|
+| `isolated` (default) | SubAgent starts with no pre-approved tools, operates independently |
+| `inherit` | SubAgent deep-copies parent's approval state at startup, then operates independently |
+| `shared` | SubAgent shares the same approval table with the parent (bidirectional) |
 
 ## How It Works
 
