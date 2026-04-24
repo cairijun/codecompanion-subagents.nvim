@@ -2035,4 +2035,590 @@ T["manager"]["adapter"]["uses custom adapter table with model"] = function()
   h.eq("gpt-4o", adapter.model)
 end
 
+-- ============================================================================
+-- Approval Mode Tests
+-- ============================================================================
+
+T["manager"]["approval_mode"] = new_set({
+  hooks = {
+    pre_case = function()
+      child.lua([[
+        local Approvals = require("codecompanion.interactions.chat.tools.approvals")
+        -- Clear all approvals
+        for k in pairs(Approvals.list()) do
+          Approvals.list()[k] = nil
+        end
+      ]])
+    end,
+  },
+})
+
+T["manager"]["approval_mode"]["isolated has independent approvals"] = function()
+  -- Test that isolated mode gives SubAgent independent approval cache
+  -- Intent: Verify isolated mode doesn't inherit parent approvals (regression)
+  child.lua([[  
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+    local Approvals = require("codecompanion.interactions.chat.tools.approvals")
+
+    local SUB_BUFNR = 200
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      return {
+        bufnr = SUB_BUFNR,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+
+    local PARENT_BUFNR = 100
+    local mock_parent_chat = {
+      id = "parent_chat",
+      bufnr = PARENT_BUFNR,
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+      tool_registry = { in_use = {}, groups = {} },
+    }
+
+    -- Pre-set parent approvals
+    Approvals.list()[PARENT_BUFNR] = { read_file = true }
+
+    -- Start subagent with isolated mode
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      approval_mode = "isolated",
+    }, "Task", {})
+
+    Chat.new = original_new
+
+    local sub_approvals = Approvals.list()[SUB_BUFNR]
+    _G.sub_has_read_file = sub_approvals ~= nil and sub_approvals.read_file == true
+  ]])
+
+  h.eq(false, child.lua_get("_G.sub_has_read_file"))
+end
+
+T["manager"]["approval_mode"]["inherit copies parent approvals"] = function()
+  -- Test that inherit mode deep-copies parent approvals at startup
+  -- Intent: Verify inherit mode copies parent approvals, including yolo_mode, but stays independent
+  child.lua([[  
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+    local Approvals = require("codecompanion.interactions.chat.tools.approvals")
+
+    local SUB_BUFNR = 200
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      return {
+        bufnr = SUB_BUFNR,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+
+    local PARENT_BUFNR = 100
+    local mock_parent_chat = {
+      id = "parent_chat",
+      bufnr = PARENT_BUFNR,
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+      tool_registry = { in_use = {}, groups = {} },
+    }
+
+    -- Pre-set parent approvals with read_file and yolo_mode
+    Approvals.list()[PARENT_BUFNR] = { read_file = true, yolo_mode = true }
+
+    -- Start subagent with inherit mode
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      approval_mode = "inherit",
+    }, "Task", {})
+
+    Chat.new = original_new
+
+    -- Check inherited values
+    local sub_approvals = Approvals.list()[SUB_BUFNR]
+    _G.inherited_read_file = sub_approvals ~= nil and sub_approvals.read_file == true
+    _G.inherited_yolo_mode = sub_approvals ~= nil and sub_approvals.yolo_mode == true
+
+    -- SubAgent adds a new approval, parent should NOT be affected
+    Approvals:always(SUB_BUFNR, { tool_name = "insert_edit_into_file" })
+    local parent_approvals = Approvals.list()[PARENT_BUFNR]
+    _G.parent_has_insert = parent_approvals ~= nil and parent_approvals.insert_edit_into_file == true
+
+    -- Parent's yolo_mode should still be true (independent copy)
+    _G.parent_yolo_unchanged = parent_approvals ~= nil and parent_approvals.yolo_mode == true
+  ]])
+
+  h.eq(true, child.lua_get("_G.inherited_read_file"))
+  h.eq(true, child.lua_get("_G.inherited_yolo_mode"))
+  h.eq(false, child.lua_get("_G.parent_has_insert"))
+  h.eq(true, child.lua_get("_G.parent_yolo_unchanged"))
+end
+
+T["manager"]["approval_mode"]["shared shares approvals bidirectionally"] = function()
+  -- Test that shared mode shares approval cache bidirectionally
+  -- Intent: Verify shared mode creates alias so both parent and sub use same table
+  child.lua([[  
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+    local Approvals = require("codecompanion.interactions.chat.tools.approvals")
+
+    local SUB_BUFNR = 200
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      return {
+        bufnr = SUB_BUFNR,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+
+    local PARENT_BUFNR = 100
+    local mock_parent_chat = {
+      id = "parent_chat",
+      bufnr = PARENT_BUFNR,
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+      tool_registry = { in_use = {}, groups = {} },
+    }
+
+    -- Pre-set parent approvals
+    Approvals.list()[PARENT_BUFNR] = { read_file = true }
+
+    -- Start subagent with shared mode
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      approval_mode = "shared",
+    }, "Task", {})
+
+    Chat.new = original_new
+
+    -- SubAgent adds a new approval, parent should also see it
+    Approvals:always(SUB_BUFNR, { tool_name = "insert_edit_into_file" })
+    local parent_approvals = Approvals.list()[PARENT_BUFNR]
+    _G.parent_has_insert = parent_approvals ~= nil and parent_approvals.insert_edit_into_file == true
+
+    -- Parent adds an approval, sub should also see it
+    Approvals:always(PARENT_BUFNR, { tool_name = "grep_search" })
+    local sub_approvals = Approvals.list()[SUB_BUFNR]
+    _G.sub_has_grep = sub_approvals ~= nil and sub_approvals.grep_search == true
+
+    -- Verify they share the same table reference
+    _G.same_ref = Approvals.list()[PARENT_BUFNR] == Approvals.list()[SUB_BUFNR]
+  ]])
+
+  h.eq(true, child.lua_get("_G.parent_has_insert"))
+  h.eq(true, child.lua_get("_G.sub_has_grep"))
+  h.eq(true, child.lua_get("_G.same_ref"))
+end
+
+T["manager"]["approval_mode"]["cleanup resets approval cache on complete"] = function()
+  -- Test that complete_subagent clears subagent approval cache
+  -- Intent: Verify approval cache is reset when subagent completes
+  child.lua([[  
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+    local Approvals = require("codecompanion.interactions.chat.tools.approvals")
+
+    local SUB_BUFNR = 200
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      return {
+        bufnr = SUB_BUFNR,
+        _parent_chat = nil,
+        ui = { hide = function() end },
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+
+    local PARENT_BUFNR = 100
+    local mock_parent_chat = {
+      id = "parent_chat",
+      bufnr = PARENT_BUFNR,
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+      tool_registry = { in_use = {}, groups = {} },
+    }
+
+    -- Pre-set parent approvals
+    Approvals.list()[PARENT_BUFNR] = { read_file = true }
+
+    -- Start subagent with inherit mode so it has approval cache
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      approval_mode = "inherit",
+    }, "Task", {})
+
+    Chat.new = original_new
+
+    -- Verify subagent has inherited approvals
+    _G.before_complete = Approvals.list()[SUB_BUFNR] ~= nil
+
+    -- Complete the subagent
+    local subagent_id = next(mock_parent_chat._subagents)
+    manager:complete_subagent(mock_parent_chat, subagent_id, "Done")
+
+    -- Check that subagent approval cache is cleaned
+    _G.after_complete = Approvals.list()[SUB_BUFNR] == nil
+  ]])
+
+  h.eq(true, child.lua_get("_G.before_complete"))
+  h.eq(true, child.lua_get("_G.after_complete"))
+end
+
+T["manager"]["approval_mode"]["shared cleanup does not affect parent"] = function()
+  -- Test that shared mode cleanup doesn't break parent approvals
+  -- Intent: Verify resetting sub_bufnr doesn't destroy the shared table
+  child.lua([[  
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+    local Approvals = require("codecompanion.interactions.chat.tools.approvals")
+
+    local SUB_BUFNR = 200
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      return {
+        bufnr = SUB_BUFNR,
+        _parent_chat = nil,
+        ui = { hide = function() end },
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+
+    local PARENT_BUFNR = 100
+    local mock_parent_chat = {
+      id = "parent_chat",
+      bufnr = PARENT_BUFNR,
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+      tool_registry = { in_use = {}, groups = {} },
+    }
+
+    -- Pre-set parent approvals
+    Approvals.list()[PARENT_BUFNR] = { read_file = true }
+
+    -- Start subagent with shared mode
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      approval_mode = "shared",
+    }, "Task", {})
+
+    Chat.new = original_new
+
+    -- SubAgent adds an approval (shared table)
+    Approvals:always(SUB_BUFNR, { tool_name = "insert_edit_into_file" })
+
+    -- Complete the subagent
+    local subagent_id = next(mock_parent_chat._subagents)
+    manager:complete_subagent(mock_parent_chat, subagent_id, "Done")
+
+    -- Sub's cache should be nil (cleaned)
+    _G.sub_after_cleanup = Approvals.list()[SUB_BUFNR] == nil
+
+    -- Parent should still have both approvals
+    local parent = Approvals.list()[PARENT_BUFNR]
+    _G.parent_still_exists = parent ~= nil
+    _G.parent_has_read = parent ~= nil and parent.read_file == true
+    _G.parent_has_insert = parent ~= nil and parent.insert_edit_into_file == true
+  ]])
+
+  h.eq(true, child.lua_get("_G.sub_after_cleanup"))
+  h.eq(true, child.lua_get("_G.parent_still_exists"))
+  h.eq(true, child.lua_get("_G.parent_has_read"))
+  h.eq(true, child.lua_get("_G.parent_has_insert"))
+end
+
+-- ============================================================================
+-- Boundary Tests
+-- ============================================================================
+
+T["manager"]["approval_mode"]["inherit with empty parent"] = function()
+  -- Test that inherit mode handles empty parent approvals
+  -- Intent: Verify subagent starts with empty approvals when parent has none
+  child.lua([[  
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+    local Approvals = require("codecompanion.interactions.chat.tools.approvals")
+
+    local SUB_BUFNR = 200
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      return {
+        bufnr = SUB_BUFNR,
+        _parent_chat = nil,
+        ui = { hide = function() end },
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+
+    local PARENT_BUFNR = 100
+    local mock_parent_chat = {
+      id = "parent_chat",
+      bufnr = PARENT_BUFNR,
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+      tool_registry = { in_use = {}, groups = {} },
+    }
+
+    -- Parent has no approvals
+    Approvals.list()[PARENT_BUFNR] = nil
+
+    -- Start subagent with inherit mode
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      approval_mode = "inherit",
+    }, "Task", {})
+
+    Chat.new = original_new
+
+    -- Subagent should have no inherited approvals (nil or empty)
+    local sub = Approvals.list()[SUB_BUFNR]
+    _G.sub_is_nil_or_empty = sub == nil or next(sub) == nil
+  ]])
+
+  h.eq(true, child.lua_get("_G.sub_is_nil_or_empty"))
+end
+
+T["manager"]["approval_mode"]["shared with empty parent creates table"] = function()
+  -- Test that shared mode creates empty table when parent has none
+  -- Intent: Verify shared mode creates a new shared table when parent has no approvals
+  child.lua([[  
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+    local Approvals = require("codecompanion.interactions.chat.tools.approvals")
+
+    local SUB_BUFNR = 200
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      return {
+        bufnr = SUB_BUFNR,
+        _parent_chat = nil,
+        ui = { hide = function() end },
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+
+    local PARENT_BUFNR = 100
+    local mock_parent_chat = {
+      id = "parent_chat",
+      bufnr = PARENT_BUFNR,
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+      tool_registry = { in_use = {}, groups = {} },
+    }
+
+    -- Parent has no approvals
+    Approvals.list()[PARENT_BUFNR] = nil
+
+    -- Start subagent with shared mode
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      approval_mode = "shared",
+    }, "Task", {})
+
+    Chat.new = original_new
+
+    -- SubAgent adds an approval - it should be visible from parent too
+    Approvals:always(SUB_BUFNR, { tool_name = "read_file" })
+
+    local parent = Approvals.list()[PARENT_BUFNR]
+    _G.parent_has_read = parent ~= nil and parent.read_file == true
+    _G.same_ref = parent == Approvals.list()[SUB_BUFNR]
+  ]])
+
+  h.eq(true, child.lua_get("_G.parent_has_read"))
+  h.eq(true, child.lua_get("_G.same_ref"))
+end
+
+T["manager"]["approval_mode"]["isolated cleanup on complete"] = function()
+  -- Test that isolated mode cleans up approval cache on complete
+  -- Intent: Verify isolated mode approval cache is cleaned up
+  child.lua([[  
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+    local Approvals = require("codecompanion.interactions.chat.tools.approvals")
+
+    local SUB_BUFNR = 200
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      return {
+        bufnr = SUB_BUFNR,
+        _parent_chat = nil,
+        ui = { hide = function() end },
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+
+    local PARENT_BUFNR = 100
+    local mock_parent_chat = {
+      id = "parent_chat",
+      bufnr = PARENT_BUFNR,
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+      tool_registry = { in_use = {}, groups = {} },
+    }
+
+    -- Start subagent with isolated mode
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      approval_mode = "isolated",
+    }, "Task", {})
+
+    Chat.new = original_new
+
+    -- SubAgent approves a tool
+    Approvals:always(SUB_BUFNR, { tool_name = "read_file" })
+
+    -- Complete the subagent
+    local subagent_id = next(mock_parent_chat._subagents)
+    manager:complete_subagent(mock_parent_chat, subagent_id, "Done")
+
+    -- Sub's cache should be cleaned
+    _G.sub_cleaned = Approvals.list()[SUB_BUFNR] == nil
+  ]])
+
+  h.eq(true, child.lua_get("_G.sub_cleaned"))
+end
+
+T["manager"]["approval_mode"]["shared repeated invocation shares same parent table"] = function()
+  -- Test that repeated shared invocations use same parent table
+  -- Intent: Verify second shared invocation reuses same parent table, old sub entry is cleaned
+  child.lua([[  
+    local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+    local Approvals = require("codecompanion.interactions.chat.tools.approvals")
+
+    -- Counter for generating unique bufnrs
+    local next_bufnr = 200
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      local bufnr = next_bufnr
+      next_bufnr = next_bufnr + 1
+      return {
+        bufnr = bufnr,
+        _parent_chat = nil,
+        ui = { hide = function() end },
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+
+    local PARENT_BUFNR = 100
+    local mock_parent_chat = {
+      id = "parent_chat",
+      bufnr = PARENT_BUFNR,
+      adapter = {
+        name = "test_adapter",
+        type = "http",
+        schema = { model = { default = "test-model" } },
+      },
+      ui = { hide = function() end, open = function() end },
+      tool_registry = { in_use = {}, groups = {} },
+    }
+
+    -- First shared invocation
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      approval_mode = "shared",
+    }, "Task 1", {})
+
+    local first_sub_bufnr = 200
+    -- Approve tool_a
+    Approvals:always(first_sub_bufnr, { tool_name = "tool_a" })
+
+    -- Complete first subagent
+    local first_subagent_id = next(mock_parent_chat._subagents)
+    manager:complete_subagent(mock_parent_chat, first_subagent_id, "Done 1")
+
+    -- Second shared invocation
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      approval_mode = "shared",
+    }, "Task 2", {})
+
+    local second_sub_bufnr = 201
+    -- Approve tool_b
+    Approvals:always(second_sub_bufnr, { tool_name = "tool_b" })
+
+    Chat.new = original_new
+
+    -- Parent should have both tool_a and tool_b
+    local parent = Approvals.list()[PARENT_BUFNR]
+    _G.parent_has_tool_a = parent ~= nil and parent.tool_a == true
+    _G.parent_has_tool_b = parent ~= nil and parent.tool_b == true
+
+    -- First sub's entry should be cleaned up
+    _G.first_sub_cleaned = Approvals.list()[first_sub_bufnr] == nil
+
+    -- Second sub should still reference parent
+    _G.second_same_ref = Approvals.list()[second_sub_bufnr] == Approvals.list()[PARENT_BUFNR]
+  ]])
+
+  h.eq(true, child.lua_get("_G.parent_has_tool_a"))
+  h.eq(true, child.lua_get("_G.parent_has_tool_b"))
+  h.eq(true, child.lua_get("_G.first_sub_cleaned"))
+  h.eq(true, child.lua_get("_G.second_same_ref"))
+end
+
 return T

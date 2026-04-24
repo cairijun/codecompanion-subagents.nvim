@@ -360,6 +360,27 @@ function M:start_subagent(parent_chat, subagent_config, task, context)
   -- Store subagent_id on subagent chat for complete_tool identification
   subagent_chat._subagent_id = subagent_id
 
+  -- Apply approval mode
+  local approval_mode = subagent_config.approval_mode or "isolated"
+  if approval_mode == "inherit" then
+    local Approvals = require("codecompanion.interactions.chat.tools.approvals")
+    local parent_bufnr = parent_chat.bufnr
+    local sub_bufnr = subagent_chat.bufnr
+    local parent_approvals = Approvals.list()[parent_bufnr]
+    if parent_approvals then
+      Approvals.list()[sub_bufnr] = vim.deepcopy(parent_approvals)
+      log:info("Inherited approval state from parent chat (bufnr=%d)", parent_bufnr)
+    end
+  elseif approval_mode == "shared" then
+    local Approvals = require("codecompanion.interactions.chat.tools.approvals")
+    local parent_bufnr = parent_chat.bufnr
+    local sub_bufnr = subagent_chat.bufnr
+    Approvals.list()[parent_bufnr] = Approvals.list()[parent_bufnr] or {}
+    Approvals.list()[sub_bufnr] = Approvals.list()[parent_bufnr]
+    log:info("Shared approval state with parent chat (bufnr=%d)", parent_bufnr)
+  end
+  -- isolated: no action
+
   -- Handle system prompt based on replace_main_system_prompt flag
   local replace_main = subagent_config.replace_main_system_prompt or false
 
@@ -413,8 +434,13 @@ function M:complete_subagent(parent_chat, subagent_id, result, is_error)
 
   -- Store result
   state.pending_result = result
-  -- Reset state
+
+  -- Save bufnr and clean up approval cache before clearing state
+  local sub_bufnr = state.subagent_chat.bufnr
   state.subagent_chat.ui:hide()
+  if sub_bufnr then
+    require("codecompanion.interactions.chat.tools.approvals"):reset(sub_bufnr)
+  end
   state.subagent_chat = nil
 
   -- Restore parent chat UI
