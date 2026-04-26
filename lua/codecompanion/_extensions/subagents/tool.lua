@@ -46,8 +46,8 @@ function M.create_subagent_tool(name, config)
       function(self, args, opts)
         local manager = require("codecompanion._extensions.subagents.manager")
 
-        -- Start the sub-agent with parent_chat
-        manager:start_subagent(self.chat, {
+        -- Start the sub-agent with parent_chat, capture the unique subagent_id
+        local subagent_id = manager:start_subagent(self.chat, {
           name = name,
           system_prompt = system_prompt,
           tools = tools,
@@ -58,9 +58,9 @@ function M.create_subagent_tool(name, config)
           adapter = adapter,
         }, args.task, args.context)
 
-        -- Store completion callback in chat object
-        if self.chat._subagents then
-          self.chat._subagents.completion_callback = function(result, is_error)
+        -- Store completion callback in chat object keyed by subagent_id
+        if self.chat._subagents and self.chat._subagents[subagent_id] then
+          self.chat._subagents[subagent_id].completion_callback = function(result, is_error)
             if opts and opts.output_cb then
               if is_error then
                 opts.output_cb({ status = "error", data = result })

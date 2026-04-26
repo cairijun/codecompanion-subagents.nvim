@@ -19,16 +19,29 @@ DO NOT output your results directly in the response. ALL results MUST be passed 
 ---Get or create subagent state for a chat
 ---@param chat CodeCompanion.Chat
 ---@return table
-local function get_state(chat)
+local function get_or_create_state(chat, subagent_id)
   if not chat._subagents then
-    chat._subagents = {
+    chat._subagents = {}
+  end
+  if not chat._subagents[subagent_id] then
+    chat._subagents[subagent_id] = {
       subagent_chat = nil,
       pending_result = nil,
       completion_callback = nil,
       config = nil,
     }
   end
-  return chat._subagents
+  return chat._subagents[subagent_id]
+end
+
+---Get subagent state for a chat
+---@param chat CodeCompanion.Chat
+---@return table|nil
+local function get_state(chat, subagent_id)
+  if not chat._subagents then
+    return nil
+  end
+  return chat._subagents[subagent_id]
 end
 
 ---Set the list of subagent names for filtering
@@ -218,12 +231,19 @@ end
 ---@param subagent_config table
 ---@param task string
 ---@param context table|nil
----@return nil
+---@return string subagent_id
 function M:start_subagent(parent_chat, subagent_config, task, context)
   log:debug("Starting subagent: %s", subagent_config.name)
 
-  -- Get or create state for this chat
-  local state = get_state(parent_chat)
+  -- Generate unique subagent_id for concurrent subagent support
+  if not parent_chat._subagent_counter then
+    parent_chat._subagent_counter = 0
+  end
+  parent_chat._subagent_counter = parent_chat._subagent_counter + 1
+  local subagent_id = subagent_config.name .. "_" .. parent_chat._subagent_counter
+
+  -- Get or create state for this specific subagent
+  local state = get_or_create_state(parent_chat, subagent_id)
 
   -- Store config in chat state
   state.config = subagent_config
@@ -318,7 +338,7 @@ function M:start_subagent(parent_chat, subagent_config, task, context)
     auto_submit = false,
   })
 
-  if not ok or not subagent_chat then
+  if not ok then
     log:error("Failed to create subagent chat: %s", subagent_chat)
     -- Restore parent chat UI on error
     if parent_chat and parent_chat.ui then
@@ -328,7 +348,7 @@ function M:start_subagent(parent_chat, subagent_config, task, context)
       state.completion_callback("Error: Failed to create subagent chat", true)
       state.completion_callback = nil
     end
-    return
+    error("Failed to create subagent chat: " .. tostring(subagent_chat))
   end
 
   -- Store subagent chat in parent chat state
@@ -336,6 +356,9 @@ function M:start_subagent(parent_chat, subagent_config, task, context)
 
   -- Store parent chat reference in subagent chat for complete_tool
   subagent_chat._parent_chat = parent_chat
+
+  -- Store subagent_id on subagent chat for complete_tool identification
+  subagent_chat._subagent_id = subagent_id
 
   -- Handle system prompt based on replace_main_system_prompt flag
   local replace_main = subagent_config.replace_main_system_prompt or false
@@ -365,6 +388,8 @@ function M:start_subagent(parent_chat, subagent_config, task, context)
   end)
 
   log:debug("Subagent started: %s", subagent_config.name)
+
+  return subagent_id
 end
 
 ---Complete the sub-agent
@@ -372,11 +397,19 @@ end
 ---@param result string
 ---@param is_error boolean|nil
 ---@return nil
-function M:complete_subagent(parent_chat, result, is_error)
-  log:debug("Completing subagent with result: %s", result)
+function M:complete_subagent(parent_chat, subagent_id, result, is_error)
+  log:debug("Completing subagent %s with result: %s", subagent_id, result)
 
   -- Get state from parent chat
-  local state = get_state(parent_chat)
+  local state = get_state(parent_chat, subagent_id)
+  if not state or not state.subagent_chat then
+    log:error("No active subagent found for id: %s", subagent_id)
+    if state and state.completion_callback then
+      state.completion_callback("Error: No active subagent found to complete", true)
+      state.completion_callback = nil
+    end
+    return
+  end
 
   -- Store result
   state.pending_result = result
@@ -406,7 +439,12 @@ function M:is_active(chat)
   if not chat or not chat._subagents then
     return false
   end
-  return chat._subagents.subagent_chat ~= nil
+  for _, state in pairs(chat._subagents) do
+    if state.subagent_chat ~= nil then
+      return true
+    end
+  end
+  return false
 end
 
 return M

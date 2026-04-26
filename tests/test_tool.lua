@@ -130,11 +130,12 @@ T["tool"]["cmds signature"] = function()
     -- Execute the tool command with proper opts signature
     tool_instance.cmds[1](mock_self, { task = "Test task" }, mock_opts)
     
-    -- Manually set subagent_chat to simulate successful creation
-    mock_chat._subagents.subagent_chat = { bufnr = 9999, ui = { hide = function() end } }
+    -- Find the subagent_id and manually set subagent_chat to simulate successful creation
+    local subagent_id = next(mock_chat._subagents)
+    mock_chat._subagents[subagent_id].subagent_chat = { bufnr = 9999, ui = { hide = function() end } }
     
     -- Simulate completion to trigger output_cb
-    manager:complete_subagent(mock_chat, "Task completed")
+    manager:complete_subagent(mock_chat, subagent_id, "Task completed")
     
     -- Verify output_cb was called
     _G.output_cb_called = mock_output_cb_called
@@ -354,15 +355,16 @@ T["tool"]["result flow"]["returns result to main chat"] = function()
     -- Execute the tool command - this sets up the completion callback
     tool_instance.cmds[1](mock_self, { task = "Test task" }, mock_input)
     
-    -- Manually set subagent_chat to simulate successful creation
+    -- Find the subagent_id and manually set subagent_chat to simulate successful creation
     -- (since we can't create a real Chat without full setup)
-    mock_chat._subagents.subagent_chat = { bufnr = 9999, ui = { hide = function() end } }
+    local subagent_id = next(mock_chat._subagents)
+    mock_chat._subagents[subagent_id].subagent_chat = { bufnr = 9999, ui = { hide = function() end } }
     
     -- Verify subagent is active
     _G.subagent_active_before = manager:is_active(mock_chat)
     
     -- Simulate complete_subagent being called
-    manager:complete_subagent(mock_chat, "Task completed successfully")
+    manager:complete_subagent(mock_chat, subagent_id, "Task completed successfully")
     
     -- Verify subagent is no longer active
     _G.subagent_active_after = manager:is_active(mock_chat)
@@ -423,11 +425,12 @@ T["tool"]["result flow"]["handles error result"] = function()
     -- Execute the tool command
     tool_instance.cmds[1](mock_self, { task = "Test task" }, mock_input)
     
-    -- Manually set subagent_chat to simulate successful creation
-    mock_chat._subagents.subagent_chat = { bufnr = 9999, ui = { hide = function() end } }
+    -- Find the subagent_id and manually set subagent_chat to simulate successful creation
+    local subagent_id = next(mock_chat._subagents)
+    mock_chat._subagents[subagent_id].subagent_chat = { bufnr = 9999, ui = { hide = function() end } }
     
     -- Simulate error completion
-    manager:complete_subagent(mock_chat, "Error: Something went wrong", true)
+    manager:complete_subagent(mock_chat, subagent_id, "Error: Something went wrong", true)
     
     -- Get the captured output
     _G.captured = captured_output
