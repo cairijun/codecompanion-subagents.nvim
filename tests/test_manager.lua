@@ -32,7 +32,9 @@ T["manager"]["state stored in chat object"] = function()
     }, "Do something", {})
     
     -- State should be in chat object, not module level
-    _G.state_in_chat = mock_chat._subagents ~= nil and mock_chat._subagents.subagent_chat ~= nil
+    local subagent_id = next(mock_chat._subagents)
+    _G.state_in_chat = mock_chat._subagents ~= nil and subagent_id ~= nil
+      and mock_chat._subagents[subagent_id].subagent_chat ~= nil
     _G.module_state_nil = manager.subagent_chat == nil
   ]])
 
@@ -54,8 +56,10 @@ T["manager"]["start_subagent sets active state"] = function()
     }, "Do something", {})
     
     -- Check state in chat object
-    _G.has_active = mock_chat._subagents ~= nil and mock_chat._subagents.subagent_chat ~= nil
-    _G.parent_in_subagent = mock_chat._subagents.subagent_chat._parent_chat == mock_chat
+    local subagent_id = next(mock_chat._subagents)
+    _G.has_active = mock_chat._subagents ~= nil and subagent_id ~= nil
+      and mock_chat._subagents[subagent_id].subagent_chat ~= nil
+    _G.parent_in_subagent = mock_chat._subagents[subagent_id].subagent_chat._parent_chat == mock_chat
   ]])
 
   h.eq(true, child.lua_get([[_G.has_active]]))
@@ -73,11 +77,12 @@ T["manager"]["complete_subagent clears state"] = function()
       system_prompt = "Test",
       tools = {},
     }, "Do something", {})
+
+    local subagent_id = next(mock_chat._subagents)
+    manager:complete_subagent(mock_chat, subagent_id, "Task completed")
     
-    manager:complete_subagent(mock_chat, "Task completed")
-    
-    _G.active_cleared = mock_chat._subagents.subagent_chat == nil
-    _G.result_set = mock_chat._subagents.pending_result == "Task completed"
+    _G.active_cleared = mock_chat._subagents[subagent_id].subagent_chat == nil
+    _G.result_set = mock_chat._subagents[subagent_id].pending_result == "Task completed"
   ]])
 
   h.eq(true, child.lua_get([[_G.active_cleared]]))
@@ -172,7 +177,9 @@ T["manager"]["UI management"]["hides parent shows subagent"] = function()
     }, "Task", {})
     
     _G.parent_hidden = parent_hidden
-    _G.has_subagent = mock_parent_chat._subagents ~= nil and mock_parent_chat._subagents.subagent_chat ~= nil
+    local subagent_id = next(mock_parent_chat._subagents)
+    _G.has_subagent = mock_parent_chat._subagents ~= nil and subagent_id ~= nil
+      and mock_parent_chat._subagents[subagent_id].subagent_chat ~= nil
   ]])
 
   h.eq(true, child.lua_get([[_G.parent_hidden]]))
@@ -211,18 +218,20 @@ T["manager"]["UI management"]["restores parent on complete"] = function()
     }, "Task", {})
     
     -- Mock the subagent's close method
-    if mock_parent_chat._subagents.subagent_chat and mock_parent_chat._subagents.subagent_chat.ui then
-      mock_parent_chat._subagents.subagent_chat.ui.close = function()
+    local subagent_id = next(mock_parent_chat._subagents)
+    local state = mock_parent_chat._subagents[subagent_id]
+    if state.subagent_chat and state.subagent_chat.ui then
+      state.subagent_chat.ui.close = function()
         subagent_closed = true
       end
     end
     
     -- Complete subagent
-    manager:complete_subagent(mock_parent_chat, "Done")
+    manager:complete_subagent(mock_parent_chat, subagent_id, "Done")
     
     _G.parent_visible = parent_visible
     _G.subagent_closed = subagent_closed
-    _G.subagent_cleared = mock_parent_chat._subagents.subagent_chat == nil
+    _G.subagent_cleared = state.subagent_chat == nil
   ]])
 
   h.eq(true, child.lua_get([[_G.parent_visible]]))
@@ -526,7 +535,9 @@ T["manager"]["error handling"]["handles creation failure gracefully"] = function
     end)
     
     _G.no_crash = ok
-    _G.state_clean = mock_parent_chat._subagents == nil or mock_parent_chat._subagents.subagent_chat == nil
+    local subagent_id = next(mock_parent_chat._subagents or {})
+    _G.state_clean = subagent_id == nil
+      or mock_parent_chat._subagents[subagent_id].subagent_chat == nil
   ]])
 
   -- Should not crash
@@ -554,10 +565,11 @@ T["manager"]["error handling"]["cleans up on error completion"] = function()
     }, "Task", {})
     
     -- Simulate error completion
-    manager:complete_subagent(mock_parent_chat, "Error: Something went wrong", true)
+    local subagent_id = next(mock_parent_chat._subagents)
+    manager:complete_subagent(mock_parent_chat, subagent_id, "Error: Something went wrong", true)
     
-    _G.state_clean = mock_parent_chat._subagents.subagent_chat == nil
-    _G.result_stored = mock_parent_chat._subagents.pending_result
+    _G.state_clean = mock_parent_chat._subagents[subagent_id].subagent_chat == nil
+    _G.result_stored = mock_parent_chat._subagents[subagent_id].pending_result
   ]])
 
   h.eq(true, child.lua_get([[_G.state_clean]]))
@@ -589,13 +601,14 @@ T["manager"]["error handling"]["calls callback with error flag"] = function()
     }, "Task", {})
     
     -- Set callback in chat state
-    mock_parent_chat._subagents.completion_callback = function(result, is_error)
+    local subagent_id = next(mock_parent_chat._subagents)
+    mock_parent_chat._subagents[subagent_id].completion_callback = function(result, is_error)
       _G.callback_result = result
       _G.callback_is_error = is_error
     end
     
     -- Complete with error
-    manager:complete_subagent(mock_parent_chat, "Error occurred", true)
+    manager:complete_subagent(mock_parent_chat, subagent_id, "Error occurred", true)
   ]])
 
   h.eq("Error occurred", child.lua_get([[_G.callback_result]]))

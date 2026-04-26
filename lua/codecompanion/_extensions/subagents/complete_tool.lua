@@ -24,15 +24,18 @@ M.cmds = {
       return
     end
 
+    -- Get subagent_id from subagent chat
+    local subagent_id = self.chat._subagent_id
+
     if not result then
-      manager:complete_subagent(parent_chat, "Error: No result provided", true)
+      manager:complete_subagent(parent_chat, subagent_id, "Error: No result provided", true)
       if opts and opts.output_cb then
         opts.output_cb({ status = "error", data = "No result provided" })
       end
       return
     end
 
-    manager:complete_subagent(parent_chat, result, false)
+    manager:complete_subagent(parent_chat, subagent_id, result, false)
 
     -- Intentionally do not call output_cb on success to prevent Chat auto-submit
     -- The subagent result is already passed to parent chat via manager:complete_subagent

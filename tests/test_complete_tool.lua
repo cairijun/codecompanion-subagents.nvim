@@ -18,7 +18,7 @@ T["complete_tool"] = new_set()
 T["complete_tool"]["has correct schema"] = function()
   child.lua([[
 _G.tool = require("codecompanion._extensions.subagents.complete_tool")
-    
+
     _G.tool_name = _G.tool.name
     _G.schema_type = _G.tool.schema.type
     _G.has_result_param = _G.tool.schema["function"].parameters.properties.result ~= nil
@@ -37,36 +37,42 @@ T["complete_tool"]["cmds function calls manager"] = function()
   child.lua([[
     local manager = require("codecompanion._extensions.subagents.manager")
     local tool = require("codecompanion._extensions.subagents.complete_tool")
-    
+
     -- Create a mock parent chat
     local mock_parent_chat = {
       id = "parent_chat",
-      _subagents = {
-        subagent_chat = { name = "test", ui = { hide = function() end } },
-      },
     }
-    
-    -- Create a mock subagent chat with parent reference
+
+    -- Create a mock subagent chat with parent reference and subagent_id
     local mock_subagent_chat = {
       id = "subagent_chat",
       _parent_chat = mock_parent_chat,
+      _subagent_id = "test_agent_1",
     }
-    
+
+    -- Set up the dict-based _subagents structure
+    mock_parent_chat._subagents = {
+      ["test_agent_1"] = {
+        subagent_chat = { name = "test", ui = { hide = function() end } },
+        pending_result = nil,
+      },
+    }
+
     _G.result_captured = nil
-    
+
     -- Use opts parameter with output_cb (no longer called on success)
     local mock_opts = {
       output_cb = function(msg) end
     }
-    
+
     -- Create mock self with subagent chat
     local mock_self = {
       chat = mock_subagent_chat,
     }
-    
+
     tool.cmds[1](mock_self, { result = "Test result" }, mock_opts)
-    
-    _G.result_captured = mock_parent_chat._subagents.pending_result
+
+    _G.result_captured = mock_parent_chat._subagents["test_agent_1"].pending_result
   ]])
 
   h.eq("Test result", child.lua_get([[_G.result_captured]]))
@@ -76,36 +82,41 @@ T["complete_tool"]["handles missing result"] = function()
   child.lua([[
     local manager = require("codecompanion._extensions.subagents.manager")
     local tool = require("codecompanion._extensions.subagents.complete_tool")
-    
+
     -- Create a mock parent chat
     local mock_parent_chat = {
       id = "parent_chat",
-      _subagents = {
+    }
+
+    -- Create a mock subagent chat with parent reference and subagent_id
+    local mock_subagent_chat = {
+      id = "subagent_chat",
+      _parent_chat = mock_parent_chat,
+      _subagent_id = "test_agent_1",
+    }
+
+    -- Set up the dict-based _subagents structure
+    mock_parent_chat._subagents = {
+      ["test_agent_1"] = {
         subagent_chat = { name = "test", ui = { hide = function() end } },
         pending_result = nil,
       },
     }
-    
-    -- Create a mock subagent chat with parent reference
-    local mock_subagent_chat = {
-      id = "subagent_chat",
-      _parent_chat = mock_parent_chat,
-    }
-    
+
     _G.output_msg = nil
-    
+
     -- Use opts parameter with output_cb
     local mock_opts = {
       output_cb = function(msg) _G.output_msg = msg end
     }
-    
+
     -- Create mock self with subagent chat
     local mock_self = {
       chat = mock_subagent_chat,
     }
-    
+
     tool.cmds[1](mock_self, {}, mock_opts)
-    
+
     _G.has_error = _G.output_msg and _G.output_msg.status == "error"
   ]])
 
