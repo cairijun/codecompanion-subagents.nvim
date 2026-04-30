@@ -12,8 +12,8 @@ local log = require("codecompanion.utils.log")
 ---SubAgent base prompt - always injected to clarify execution context
 ---@type string
 local SUBAGENT_BASE_PROMPT =
-  [[You are running as a SubAgent. You have access to the `complete_subagent` tool.
-When you have completed your task, call the `complete_subagent` tool to return your results to the main agent.
+  [[You are running as a SubAgent. You should execute the task assigned to you by the main agent, but not the other tasks.
+You have access to the `complete_subagent` tool. When you have completed your task, you MUST call the `complete_subagent` tool to return your results to the main agent.
 DO NOT output your results directly in the response. ALL results MUST be passed as a parameter to the `complete_subagent` tool.]]
 
 ---Get or create subagent state for a chat
@@ -130,21 +130,6 @@ function M:get_inherited_mcp_servers(parent_chat)
   return mcp_servers
 end
 
----Deep copy a message table
----@param msg CodeCompanion.Chat.Message
----@return CodeCompanion.Chat.Message
-local function deep_copy_message(msg)
-  local copy = {}
-  for k, v in pairs(msg) do
-    if type(v) == "table" then
-      copy[k] = vim.deepcopy(v)
-    else
-      copy[k] = v
-    end
-  end
-  return copy
-end
-
 ---Get inherited messages from parent chat
 ---Replaces the tool call message with a context message
 ---@param parent_chat CodeCompanion.Chat
@@ -163,64 +148,53 @@ function M:get_inherited_messages(parent_chat, subagent_name, task)
     return {}
   end
 
-  -- 1. Deep copy parent messages
-  local copied_messages = {}
-  for _, msg in ipairs(messages) do
-    table.insert(copied_messages, deep_copy_message(msg))
-  end
-
-  -- 2. Remove all system messages
-  local filtered_messages = {}
-  for _, msg in ipairs(copied_messages) do
-    if msg.role ~= "system" then
-      table.insert(filtered_messages, msg)
-    end
-  end
-
-  if #filtered_messages == 0 then
-    log:warn("No non-system messages to inherit")
-    return {}
-  end
-
-  -- 3. Find the last message containing the subagent_xxx tool call
-  local tool_call_prefix = "subagent_" .. subagent_name
-  local tool_call_idx = nil
-
-  for i = #filtered_messages, 1, -1 do
-    local msg = filtered_messages[i]
+  local fork_msg_idx
+  for i = #messages, 1, -1 do
+    local msg = messages[i]
     if msg.tools and msg.tools.calls then
       for _, call in ipairs(msg.tools.calls) do
-        if call["function"] and call["function"].name == tool_call_prefix then
-          tool_call_idx = i
+        if call["function"] and call["function"].name == ("subagent_" .. subagent_name) then
+          fork_msg_idx = i
           break
         end
       end
-      if tool_call_idx then
+      if fork_msg_idx then
         break
       end
     end
   end
-
-  -- 4. Replace the tool call message with context message
-  if tool_call_idx then
-    local context_content = string.format(
-      [[You are now executing as a SubAgent.
-
-Task: %s
-
-Continue from the conversation context above.]],
-      task
-    )
-    filtered_messages[tool_call_idx] = {
-      role = config.constants.USER_ROLE,
-      content = context_content,
-    }
-  else
-    log:warn(
-      "Could not find tool call message for subagent_%s, using original messages",
-      subagent_name
-    )
+  if fork_msg_idx == nil then
+    log:error("No branching message found for subagent_%s", subagent_name)
+    error("Precondition violated: tool call message not found in parent chat")
   end
+
+  local filtered_messages = vim.iter(messages)
+    :take(fork_msg_idx - 1)
+    :filter(function(msg)
+      return msg.role ~= "system"
+    end)
+    :map(function(msg)
+      return vim.deepcopy(msg)
+    end)
+    :totable()
+
+  if #filtered_messages == 0 then
+    log:warn("No non-system messages to inherit")
+  end
+
+  local context_content = string.format(
+    [[--- CONTEXT FORKED AT THIS POINT ---
+YOU ARE NOW EXECUTING AS A FORKING SUBAGENT. ALL THE PREVIOUS MESSAGES ARE INTERACTIONS BETWEEN THE USER AND THE MAIN AGENT (NOT YOU). YOU SHOULD USE THIS CONTEXT TO COMPLETE YOUR TASK DESCRIBED BELOW.
+
+<your_task>
+%s
+</your_task>]],
+    task
+  )
+  table.insert(filtered_messages, {
+    role = config.constants.USER_ROLE,
+    content = context_content,
+  })
 
   log:info("Inherited %d messages from parent chat", #filtered_messages)
   return filtered_messages
@@ -233,7 +207,11 @@ end
 ---@param context table|nil
 ---@return string subagent_id
 function M:start_subagent(parent_chat, subagent_config, task, context)
-  log:debug("Starting subagent: %s", subagent_config.name)
+  -- Check if parent_chat is already a subagent chat (prevent nesting)
+  if parent_chat and parent_chat._subagent_id then
+    log:error("Cannot start a subagent from another subagent chat")
+    error("YOU ARE THE SUB-AGENT. YOU ARE NOT ALLOWED TO START ANOTHER SUB-AGENT.")
+  end
 
   -- Generate unique subagent_id for concurrent subagent support
   if not parent_chat._subagent_counter then
@@ -241,6 +219,8 @@ function M:start_subagent(parent_chat, subagent_config, task, context)
   end
   parent_chat._subagent_counter = parent_chat._subagent_counter + 1
   local subagent_id = subagent_config.name .. "_" .. parent_chat._subagent_counter
+
+  log:info("Starting subagent: %s", subagent_id)
 
   -- Get or create state for this specific subagent
   local state = get_or_create_state(parent_chat, subagent_id)
@@ -296,7 +276,7 @@ function M:start_subagent(parent_chat, subagent_config, task, context)
     -- Explicit mode: build task message with context
     local task_content = task
     if context and type(context) == "table" and not vim.tbl_isempty(context) then
-      task_content = string.format("%s\n\nContext:\n%s", task, vim.inspect(context))
+      task_content = string.format("%s\n\n<context>\n%s</context>", task, vim.inspect(context))
     end
     messages = {
       {
@@ -313,7 +293,7 @@ function M:start_subagent(parent_chat, subagent_config, task, context)
     for i = #messages, 1, -1 do
       if messages[i].role == config.constants.USER_ROLE then
         messages[i].content =
-          string.format("%s\n\n[Expected Result]\n%s", messages[i].content, result_spec)
+          string.format("%s\n\n<expected-result>\n%s\n</expected-result>", messages[i].content, result_spec)
         break
       end
     end
@@ -398,7 +378,7 @@ end
 ---@param is_error boolean|nil
 ---@return nil
 function M:complete_subagent(parent_chat, subagent_id, result, is_error)
-  log:debug("Completing subagent %s with result: %s", subagent_id, result)
+  log:info("Completing subagent %s", subagent_id)
 
   -- Get state from parent chat
   local state = get_state(parent_chat, subagent_id)

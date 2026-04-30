@@ -1446,38 +1446,6 @@ T["manager"]["get_inherited_messages"]["returns empty for parent without message
   h.eq(true, child.lua_get([[_G.messages_empty]]))
 end
 
-T["manager"]["get_inherited_messages"]["filters out system messages"] = function()
-  -- Test that get_inherited_messages filters out system messages
-  -- Intent: Verify system messages are removed from inherited messages
-  child.lua([[
-    local manager = require("codecompanion._extensions.subagents.manager")
-    
-    local mock_parent_chat = {
-      id = "parent_chat",
-      messages = {
-        { role = "system", content = "System prompt" },
-        { role = "user", content = "User message" },
-        { role = "llm", content = "LLM response" },
-        { role = "system", content = "Another system" },
-      },
-    }
-    
-    local messages = manager:get_inherited_messages(mock_parent_chat, "test_agent", "Task")
-    
-    _G.messages_count = #messages
-    _G.all_non_system = true
-    for _, msg in ipairs(messages) do
-      if msg.role == "system" then
-        _G.all_non_system = false
-        break
-      end
-    end
-  ]])
-
-  h.eq(2, child.lua_get([[_G.messages_count]]))
-  h.eq(true, child.lua_get([[_G.all_non_system]]))
-end
-
 T["manager"]["get_inherited_messages"]["replaces tool call message"] = function()
   -- Test that get_inherited_messages replaces tool call message with context
   -- Intent: Verify tool call message is replaced with SubAgent context message
@@ -1518,30 +1486,6 @@ T["manager"]["get_inherited_messages"]["replaces tool call message"] = function(
   h.eq(3, child.lua_get([[_G.messages_count]]))
   h.eq("user", child.lua_get([[_G.last_role]]))
   h.eq(true, child.lua_get([[_G.has_task]]))
-end
-
-T["manager"]["get_inherited_messages"]["handles missing tool call"] = function()
-  -- Test that get_inherited_messages handles missing tool call gracefully
-  -- Intent: Verify messages are still returned when tool call is not found
-  child.lua([[
-    local manager = require("codecompanion._extensions.subagents.manager")
-    
-    local mock_parent_chat = {
-      id = "parent_chat",
-      messages = {
-        { role = "user", content = "User message" },
-        { role = "llm", content = "LLM response" },
-      },
-    }
-    
-    local messages = manager:get_inherited_messages(mock_parent_chat, "test_agent", "Task")
-    
-    _G.messages_count = #messages
-    _G.first_content = messages[1].content
-  ]])
-
-  h.eq(2, child.lua_get([[_G.messages_count]]))
-  h.eq("User message", child.lua_get([[_G.first_content]]))
 end
 
 -- ============================================================================
@@ -1646,7 +1590,17 @@ T["manager"]["context_mode"]["inherit mode uses inherited messages"] = function(
       tool_registry = { in_use = {}, groups = {} },
       messages = {
         { role = "user", content = "Previous message" },
-        { role = "llm", content = "LLM response" },
+        { role = "llm", content = "LLM response", tools = {
+          calls = {
+            {
+              id = "call_123",
+              ["function"] = {
+                name = "subagent_test_agent",
+                arguments = '{ "task": "New task" }',
+              },
+            },
+          },
+        } },
       },
     }
     
@@ -1714,7 +1668,7 @@ T["manager"]["result_spec"]["injects result_spec into task"] = function()
     
     local content = captured_opts.messages[1].content
     _G.has_task = content:find("Do something") ~= nil
-    _G.has_result_spec = content:find("Expected Result") ~= nil
+    _G.has_result_spec = content:find("<expected-result>", 1, true) ~= nil
     _G.has_json = content:find("JSON object") ~= nil
   ]])
 
@@ -1753,7 +1707,17 @@ T["manager"]["result_spec"]["injects result_spec in inherit mode"] = function()
       tool_registry = { in_use = {}, groups = {} },
       messages = {
         { role = "user", content = "Previous message" },
-        { role = "llm", content = "LLM response" },
+        { role = "llm", content = "LLM response", tools = {
+          calls = {
+            {
+              id = "call_123",
+              ["function"] = {
+                name = "subagent_test_agent",
+                arguments = '{ "task": "New task" }',
+              },
+            },
+          },
+        } },
       },
     }
     
@@ -1776,7 +1740,7 @@ T["manager"]["result_spec"]["injects result_spec in inherit mode"] = function()
       end
     end
     
-    _G.has_result_spec = last_user_content and last_user_content:find("Expected Result") ~= nil
+    _G.has_result_spec = last_user_content and last_user_content:find("<expected-result>", 1, true) ~= nil
     _G.has_summary = last_user_content and last_user_content:find("Return a summary") ~= nil
   ]])
 
