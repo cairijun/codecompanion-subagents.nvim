@@ -46,7 +46,8 @@ Each subagent requires the following fields:
 | `mcp_servers` | string[] or "inherit" | No | List of MCP server names to use. Use "inherit" to inherit from parent agent. |
 | `context_mode` | "explicit" or "inherit" | No | Context mode: "explicit" (default) passes context as parameter; "inherit" inherits message history from parent chat. |
 | `context_spec` | string | No | Description of what context is needed (used in `context_mode="explicit"`) |
-| `adapter` | string, table, or "inherit" | No | Adapter for the subagent. Use a string name (e.g., `"anthropic"`), a table with name and model (e.g., `{ name = "openai", model = "gpt-4o" }`), or `"inherit"` to use the parent chat's adapter (default when omitted). |
+| `adapter` | string, table, or "inherit" | No | Adapter for the subagent. Use a string name (e.g., `"anthropic"`), a table with name and model (e.g., `{ name = "openai", model = "gpt-4o" }`), or `"inherit"` to use the parent chat's adapter (default when omitted). **Mutually exclusive with `default_power`.** |
+| `default_power` | string | No | Default power level for this subagent. Requires `powers` to be defined. Cannot be used with `adapter` or `context_mode = "inherit"`. |
 | `approval_mode` | `"isolated"`, `"inherit"`, or `"shared"` | No | How tool approval state is managed. `"isolated"` (default): SubAgent starts with no pre-approved tools. `"inherit"`: deep-copies parent's approval state at startup, then operates independently. `"shared"`: shares the same approval table with parent bidirectionally. |
 
 ### Example Configuration
@@ -108,6 +109,49 @@ Your workflow:
 })
 ```
 
+### Example with Power Configuration
+
+```lua
+require("codecompanion").setup({
+  extensions = {
+    subagents = {
+      enabled = true,
+      opts = {
+        powers = {
+          high = {
+            adapter = { name = "copilot", model = "gpt-5.4" },
+          },
+          medium = {
+            adapter = { name = "deepseek", model = "deepseek-v4-pro" },
+          },
+          low = {
+            adapter = { name = "deepseek", model = "deepseek-v4-flash" },
+          },
+        },
+        subagents = {
+          code_reviewer = {
+            description = "Reviews code for bugs, style issues, and improvements",
+            system_prompt = "You are an expert code reviewer.",
+            tools = { "file_search", "grep_search", "read_file" },
+            context_spec = "The code files to review.",
+            result_spec = "A structured review with findings and suggestions",
+            default_power = "medium",
+          },
+          test_writer = {
+            description = "Writes unit tests for the given code",
+            system_prompt = "You are a test engineer.",
+            tools = { "file_search", "read_file" },
+            context_spec = "The code to test.",
+            result_spec = "The test file content",
+            -- No default_power: falls back to parent chat adapter unless overridden at call time
+          },
+        },
+      },
+    },
+  },
+})
+```
+
 ## Usage
 
 A subagent will available as a tool named `subagent_{subagent_name}`. You can ask the main agent to call this tool delegate a task to the subagent. For example, with the above configuration, you can:
@@ -117,6 +161,52 @@ A subagent will available as a tool named `subagent_{subagent_name}`. You can as
 - `Use @{subagent_reviewer} to review current code changes`
 
 The main agent will delegate the task to the appropriate subagent, which will execute with its specialized system prompt and tool set, then return results back to the main conversation.
+
+### Power Configuration
+
+Power levels let you define named adapter presets at the project level and reference them from subagents, enabling a three-layer resolution model:
+
+1. **Project-level** — `opts.powers` defines named power levels and their adapter mappings.
+2. **Subagent default** — `default_power` sets a default level for a specific subagent.
+3. **Call-time override** — the `power` parameter in the tool call overrides the default for a single invocation.
+
+Resolution order: `call arg power` > `subagent default_power` > `parent chat adapter`.
+
+#### `opts.powers`
+
+A table mapping power level names to adapter configurations:
+
+```lua
+opts = {
+  powers = {
+    high = {
+      adapter = { name = "copilot", model = "gpt-5.4" },
+    },
+    medium = {
+      adapter = { name = "deepseek", model = "deepseek-v4-pro" },
+    },
+    low = {
+      adapter = { name = "deepseek", model = "deepseek-v4-flash" },
+    },
+  },
+  subagents = {
+    -- ...
+  },
+}
+```
+
+Each `powers.<level>.adapter` follows the same semantics as the subagent `adapter` field — it can be a string name or a table with `name` and `model`.
+
+#### Unsupported Power scenarios
+
+The following subagent configurations do **not** support Power:
+
+- `context_mode = "inherit"` — inherits the parent chat's execution context, so Power is not applicable.
+- Explicit `adapter` — a subagent with a hardcoded adapter cannot also use Power; use `default_power` instead.
+
+#### Tool call `power` parameter
+
+When `opts.powers` is defined and a subagent supports Power, the tool schema exposes an optional `power` parameter with an enum matching the defined level names. The main agent can pass this parameter at call time to override the subagent's default power level.
 
 ### Approval Modes
 

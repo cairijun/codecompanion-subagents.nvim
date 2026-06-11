@@ -8,12 +8,58 @@ local M = {}
 M._subagents = {}
 M._opts = {}
 
+---Validate powers configuration
+---@param opts table
+---@return nil
+local function validate_powers_config(opts)
+  local powers = opts.powers
+  if powers == nil then
+    return
+  end
+  if type(powers) ~= "table" then
+    error("powers must be a table")
+  end
+  -- Empty table means "no powers defined", not an error
+  if vim.tbl_count(powers) == 0 then
+    return
+  end
+  for level, value in pairs(powers) do
+    if type(level) ~= "string" or level == "" then
+      error("powers.<level>: empty power level name")
+    end
+    if type(value) ~= "table" or value.adapter == nil then
+      error("powers.<level>: missing or invalid adapter")
+    end
+    if type(value.adapter) ~= "string" and type(value.adapter) ~= "table" then
+      error("powers.<level>: missing or invalid adapter")
+    end
+  end
+  -- Validate default_power references in subagents (only when powers is non-empty)
+  local subagents = opts.subagents or {}
+  for name, subagent_config in pairs(subagents) do
+    if subagent_config.default_power ~= nil then
+      if powers[subagent_config.default_power] == nil then
+        error("subagents." .. name .. ".default_power references unknown power: " .. subagent_config.default_power)
+      end
+      if subagent_config.adapter ~= nil then
+        error("subagents." .. name .. " cannot set both adapter and default_power")
+      end
+      if subagent_config.context_mode == "inherit" then
+        error("subagents." .. name .. " with context_mode=\"inherit\" cannot use default_power")
+      end
+    end
+  end
+end
+
 ---Setup the extension
 ---@param opts table
 ---@return nil
 function M.setup(opts)
   opts = opts or {}
   M._opts = opts
+
+  -- Validate powers configuration before proceeding
+  validate_powers_config(opts)
 
   local subagents = opts.subagents or {}
   M._subagents = subagents
@@ -29,11 +75,12 @@ function M.setup(opts)
     table.insert(subagent_names, name)
   end
   manager:set_subagent_names(subagent_names)
+  manager:set_powers(opts.powers or {})
 
   -- Register each subagent as a tool
   for name, subagent_config in pairs(subagents) do
     -- Create tool definition for this subagent using tool module
-    local tool = tool_module.create_subagent_tool(name, subagent_config)
+    local tool = tool_module.create_subagent_tool(name, subagent_config, opts)
 
     -- Register the tool directly in codecompanion's config
     -- Use the prefixed name from the tool

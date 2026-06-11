@@ -2585,4 +2585,482 @@ T["manager"]["approval_mode"]["shared repeated invocation shares same parent tab
   h.eq(true, child.lua_get("_G.second_same_ref"))
 end
 
+-- ============================================================================
+-- Power Resolution Tests
+-- ============================================================================
+
+T["manager"]["power resolution"] = new_set({
+  hooks = {
+    pre_case = function()
+      child.lua([[local manager = require("codecompanion._extensions.subagents.manager")
+        manager._powers = {}]])
+    end,
+  },
+})
+
+T["manager"]["power resolution"]["call arg power wins over default_power"] = function()
+  child.lua([[local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+
+    local captured_opts = nil
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      captured_opts = opts
+      return {
+        bufnr = 9999,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+
+    manager._powers = {
+      high = { adapter = "adapter_a" },
+      low = { adapter = "adapter_b" },
+    }
+
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = { name = "parent_adapter" },
+      ui = { hide = function() end, open = function() end },
+    }
+
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      power = "high",
+      default_power = "low",
+    }, "Task", {})
+
+    Chat.new = original_new
+
+    _G.adapter_value = captured_opts.adapter]])
+
+  h.eq("adapter_a", child.lua_get([[_G.adapter_value]]))
+end
+
+T["manager"]["power resolution"]["default_power used when no call arg"] = function()
+  child.lua([[local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+
+    local captured_opts = nil
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      captured_opts = opts
+      return {
+        bufnr = 9999,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+
+    manager._powers = {
+      medium = { adapter = "adapter_c" },
+    }
+
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = { name = "parent_adapter" },
+      ui = { hide = function() end, open = function() end },
+    }
+
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      power = nil,
+      default_power = "medium",
+    }, "Task", {})
+
+    Chat.new = original_new
+
+    _G.adapter_value = captured_opts.adapter]])
+
+  h.eq("adapter_c", child.lua_get([[_G.adapter_value]]))
+end
+
+T["manager"]["power resolution"]["parent adapter fallback when no power"] = function()
+  child.lua([[local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+
+    local captured_opts = nil
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      captured_opts = opts
+      return {
+        bufnr = 9999,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+
+    manager._powers = {
+      high = { adapter = "adapter_a" },
+    }
+
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = { name = "parent_adapter" },
+      ui = { hide = function() end, open = function() end },
+    }
+
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      power = nil,
+      default_power = nil,
+    }, "Task", {})
+
+    Chat.new = original_new
+
+    _G.adapter_name = captured_opts.adapter.name]])
+
+  h.eq("parent_adapter", child.lua_get([[_G.adapter_name]]))
+end
+
+T["manager"]["power resolution"]["call arg power wins over parent adapter"] = function()
+  child.lua([[local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+
+    local captured_opts = nil
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      captured_opts = opts
+      return {
+        bufnr = 9999,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+
+    manager._powers = {
+      low = { adapter = "adapter_d" },
+    }
+
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = { name = "parent_adapter" },
+      ui = { hide = function() end, open = function() end },
+    }
+
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      power = "low",
+      default_power = nil,
+    }, "Task", {})
+
+    Chat.new = original_new
+
+    _G.adapter_value = captured_opts.adapter]])
+
+  h.eq("adapter_d", child.lua_get([[_G.adapter_value]]))
+end
+
+-- ============================================================================
+-- Power Runtime Validation Tests
+-- ============================================================================
+
+T["manager"]["power runtime validation"] = new_set({
+  hooks = {
+    pre_case = function()
+      child.lua([[local manager = require("codecompanion._extensions.subagents.manager")
+        manager._powers = {}]])
+    end,
+  },
+})
+
+T["manager"]["power runtime validation"]["error when power arg on unsupported subagent"] = function()
+  child.lua([[local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      return {
+        bufnr = 9999,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+
+    manager._powers = {
+      high = { adapter = "adapter_a" },
+    }
+
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = { name = "parent_adapter" },
+      ui = { hide = function() end, open = function() end },
+    }
+
+    -- SubAgent has explicit adapter, so it does not support power
+    _G.error_msg = nil
+    local ok, err = pcall(function()
+      manager:start_subagent(mock_parent_chat, {
+        name = "test_agent",
+        system_prompt = "Test",
+        tools = {},
+        adapter = "openai",
+        power = "high",
+      }, "Task", {})
+    end)
+
+    if not ok then
+      _G.error_msg = tostring(err)
+    end
+
+    Chat.new = original_new]])
+
+  local err = child.lua_get([[_G.error_msg]])
+  local err_str = type(err) == "userdata" and tostring(err) or tostring(err)
+  h.eq(true, err_str:find("does not support power override") ~= nil, "Error should mention 'does not support power override'")
+end
+
+T["manager"]["power runtime validation"]["error when power arg references unknown level"] = function()
+  child.lua([[local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      return {
+        bufnr = 9999,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+
+    manager._powers = {
+      high = { adapter = "adapter_a" },
+    }
+
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = { name = "parent_adapter" },
+      ui = { hide = function() end, open = function() end },
+    }
+
+    _G.error_msg = nil
+    local ok, err = pcall(function()
+      manager:start_subagent(mock_parent_chat, {
+        name = "test_agent",
+        system_prompt = "Test",
+        tools = {},
+        power = "unknown",
+      }, "Task", {})
+    end)
+
+    if not ok then
+      _G.error_msg = tostring(err)
+    end
+
+    Chat.new = original_new]])
+
+  local err = child.lua_get([[_G.error_msg]])
+  local err_str = type(err) == "userdata" and tostring(err) or tostring(err)
+  h.eq(true, err_str:find("unknown power level") ~= nil, "Error should mention 'unknown power level'")
+end
+
+-- ============================================================================
+-- Power Integration Tests
+-- ============================================================================
+
+T["manager"]["power integration"] = new_set({
+  hooks = {
+    pre_case = function()
+      child.lua([[local manager = require("codecompanion._extensions.subagents.manager")
+        manager._powers = {}]])
+    end,
+  },
+})
+
+T["manager"]["power integration"]["full resolution chain"] = function()
+  child.lua([[local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+
+    local captured_adapters = {}
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      table.insert(captured_adapters, opts.adapter)
+      return {
+        bufnr = 9999 + #captured_adapters,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+
+    manager._powers = {
+      high = { adapter = "adapter_high" },
+      medium = { adapter = "adapter_medium" },
+    }
+
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = { name = "parent_adapter" },
+      ui = { hide = function() end, open = function() end },
+    }
+
+    -- Call 1: call arg power wins
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      power = "high",
+      default_power = "medium",
+    }, "Task1", {})
+
+    -- Call 2: default_power used when no call arg
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      default_power = "medium",
+    }, "Task2", {})
+
+    -- Call 3: parent adapter fallback when no power at all
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+    }, "Task3", {})
+
+    Chat.new = original_new
+
+    _G.captured_adapters = captured_adapters]])
+
+  local adapters = child.lua_get([[_G.captured_adapters]])
+  h.eq("adapter_high", adapters[1])
+  h.eq("adapter_medium", adapters[2])
+  h.eq("parent_adapter", adapters[3].name)
+end
+
+T["manager"]["power integration"]["no powers config behaves as before"] = function()
+  child.lua([[local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+
+    local captured_adapter = nil
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      captured_adapter = opts.adapter
+      return {
+        bufnr = 9999,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+
+    manager._powers = {}
+
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = { name = "parent_adapter" },
+      ui = { hide = function() end, open = function() end },
+    }
+
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+    }, "Task", {})
+
+    Chat.new = original_new
+
+    _G.adapter_name = captured_adapter.name]])
+
+  h.eq("parent_adapter", child.lua_get([[_G.adapter_name]]))
+end
+
+T["manager"]["power integration"]["power with table adapter"] = function()
+  child.lua([[local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+
+    local captured_adapter = nil
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      captured_adapter = opts.adapter
+      return {
+        bufnr = 9999,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+
+    manager._powers = {
+      high = { adapter = { name = "openai", model = "gpt-4o" } },
+    }
+
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = { name = "parent_adapter" },
+      ui = { hide = function() end, open = function() end },
+    }
+
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      power = "high",
+    }, "Task", {})
+
+    Chat.new = original_new
+
+    _G.adapter_name = captured_adapter.name
+    _G.adapter_model = captured_adapter.model]])
+
+  h.eq("openai", child.lua_get([[_G.adapter_name]]))
+  h.eq("gpt-4o", child.lua_get([[_G.adapter_model]]))
+end
+
+T["manager"]["power integration"]["default_power with table adapter"] = function()
+  child.lua([[local manager = require("codecompanion._extensions.subagents.manager")
+    local Chat = require("codecompanion.interactions.chat")
+
+    local captured_adapter = nil
+    local original_new = Chat.new
+    Chat.new = function(opts)
+      captured_adapter = opts.adapter
+      return {
+        bufnr = 9999,
+        _parent_chat = nil,
+        set_system_prompt = function() end,
+        submit = function() end,
+      }
+    end
+
+    manager._powers = {
+      high = { adapter = { name = "openai", model = "gpt-4o" } },
+    }
+
+    local mock_parent_chat = {
+      id = "parent_chat",
+      adapter = { name = "parent_adapter" },
+      ui = { hide = function() end, open = function() end },
+    }
+
+    manager:start_subagent(mock_parent_chat, {
+      name = "test_agent",
+      system_prompt = "Test",
+      tools = {},
+      default_power = "high",
+    }, "Task", {})
+
+    Chat.new = original_new
+
+    _G.adapter_name = captured_adapter.name
+    _G.adapter_model = captured_adapter.model]])
+
+  h.eq("openai", child.lua_get([[_G.adapter_name]]))
+  h.eq("gpt-4o", child.lua_get([[_G.adapter_model]]))
+end
+
 return T

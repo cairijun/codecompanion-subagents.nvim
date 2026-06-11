@@ -1,10 +1,12 @@
 ---@class CodeCompanion.SubAgents.Manager
 ---@field _subagent_names string[]
+---@field _powers table
 
 local M = {}
 
 -- Global config (kept at module level)
 M._subagent_names = {}
+M._powers = {}
 
 local config = require("codecompanion.config")
 local log = require("codecompanion.utils.log")
@@ -50,6 +52,13 @@ end
 ---@return nil
 function M:set_subagent_names(names)
   M._subagent_names = names or {}
+end
+
+---Set the powers configuration
+---@param powers table
+---@return nil
+function M:set_powers(powers)
+  M._powers = powers or {}
 end
 
 ---Get filtered tools for a sub-agent
@@ -241,6 +250,26 @@ function M:start_subagent(parent_chat, subagent_config, task, context)
     mcp_servers = self:get_inherited_mcp_servers(parent_chat)
   end
 
+  -- Power resolution: call arg power > default_power > parent chat adapter
+  local power = subagent_config.power
+  local default_power = subagent_config.default_power
+  local supports_power = subagent_config.adapter == nil and subagent_config.context_mode ~= "inherit"
+
+  if power ~= nil then
+    if not supports_power then
+      error("subagent_" .. subagent_config.name .. " does not support power override")
+    end
+    if M._powers[power] == nil then
+      error("unknown power level: " .. power)
+    end
+  end
+
+  if power and M._powers[power] then
+    subagent_config.adapter = M._powers[power].adapter
+  elseif default_power and M._powers[default_power] then
+    subagent_config.adapter = M._powers[default_power].adapter
+  end
+
   -- Adapter: nil or "inherit" falls back to parent chat's adapter
   local adapter = subagent_config.adapter
   if adapter == nil or adapter == "inherit" then
@@ -294,7 +323,7 @@ function M:start_subagent(parent_chat, subagent_config, task, context)
     for i = #messages, 1, -1 do
       if messages[i].role == config.constants.USER_ROLE then
         messages[i].content =
-          string.format("%s\n\n<expected-result>\n%s\n</expected-result>", messages[i].content, result_spec)
+          string.format("%s\n\nUse @{complete_subagent} to response you result:\n<expected-result>\n%s\n</expected-result>", messages[i].content, result_spec)
         break
       end
     end

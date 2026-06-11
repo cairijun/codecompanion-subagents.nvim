@@ -12,7 +12,7 @@ local valid_approval_modes = { isolated = true, inherit = true, shared = true }
 ---@param name string The name of the subagent
 ---@param config table Subagent configuration with description, system_prompt, tools, etc.
 ---@return table tool Tool definition compatible with codecompanion
-function M.create_subagent_tool(name, config)
+function M.create_subagent_tool(name, config, opts)
   local prefixed_name = "subagent_" .. name
   local description = config.description or ("Sub-agent: " .. name)
   local system_prompt = config.system_prompt
@@ -28,6 +28,7 @@ function M.create_subagent_tool(name, config)
   local result_spec = config.result_spec
   local replace_main_system_prompt = config.replace_main_system_prompt or false
   local adapter = config.adapter
+  local default_power = config.default_power
 
   -- Approval mode determines how tool approval state is managed:
   local approval_mode = config.approval_mode or "isolated"
@@ -52,11 +53,28 @@ function M.create_subagent_tool(name, config)
     }
   end
 
+  -- Add power parameter when powers is defined and SubAgent supports it
+  opts = opts or {}
+  local powers = opts.powers or {}
+  local supports_power = vim.tbl_count(powers) > 0 and adapter == nil and context_mode ~= "inherit"
+  if supports_power then
+    local power_keys = vim.tbl_keys(powers)
+    table.sort(power_keys)
+    schema_properties.power = {
+      type = "string",
+      description = "Power level override for this invocation. Set this only when there are strong reasons to deviate from the default choice.",
+      enum = power_keys,
+    }
+  end
+
   return {
     name = prefixed_name,
     cmds = {
       function(self, args, opts)
         local manager = require("codecompanion._extensions.subagents.manager")
+
+        -- Extract power from call args
+        local power = args.power
 
         -- Start the sub-agent with parent_chat, capture the unique subagent_id
         local subagent_id = manager:start_subagent(self.chat, {
@@ -69,6 +87,8 @@ function M.create_subagent_tool(name, config)
           result_spec = result_spec,
           adapter = adapter,
           approval_mode = approval_mode,
+          power = power,
+          default_power = default_power,
         }, args.task, args.context)
 
         -- Store completion callback in chat object keyed by subagent_id

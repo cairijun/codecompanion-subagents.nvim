@@ -673,6 +673,288 @@ T["tool"]["replace_main_system_prompt config"]["defaults to false when not speci
   h.eq(false, child.lua_get([[_G.replace_flag_value]]))
 end
 
+T["tool"]["power schema"] = new_set()
+
+T["tool"]["power schema"]["no power param when powers undefined"] = function()
+  -- Test that power param is not in schema when powers is not passed
+  -- Intent: Verify schema excludes power when no powers config exists
+  -- Ref: Plan Task 2, Step 1
+  child.lua([[
+    local tool = require("codecompanion._extensions.subagents.tool")
+
+    local t = tool.create_subagent_tool("test_agent", {
+      description = "Test",
+      system_prompt = "Test",
+      tools = {},
+    })
+
+    _G.has_power = t.schema["function"].parameters.properties.power ~= nil
+  ]])
+
+  h.eq(false, child.lua_get([[_G.has_power]]))
+end
+
+T["tool"]["power schema"]["no power param when powers empty"] = function()
+  -- Test that power param is not in schema when powers is empty table
+  -- Intent: Verify empty powers table is treated as "undefined"
+  -- Ref: Plan Task 2, Step 1
+  child.lua([[
+    local tool = require("codecompanion._extensions.subagents.tool")
+
+    local t = tool.create_subagent_tool("test_agent", {
+      description = "Test",
+      system_prompt = "Test",
+      tools = {},
+    }, { powers = {} })
+
+    _G.has_power = t.schema["function"].parameters.properties.power ~= nil
+  ]])
+
+  h.eq(false, child.lua_get([[_G.has_power]]))
+end
+
+T["tool"]["power schema"]["power param when powers defined"] = function()
+  -- Test that power param is in schema when powers is defined and SubAgent supports it
+  -- Intent: Verify schema includes power with correct enum when powers is non-empty
+  -- Ref: Plan Task 2, Step 1
+  child.lua([[
+    local tool = require("codecompanion._extensions.subagents.tool")
+
+    local t = tool.create_subagent_tool("test_agent", {
+      description = "Test",
+      system_prompt = "Test",
+      tools = {},
+    }, { powers = { high = { adapter = "openai" } } })
+
+    local props = t.schema["function"].parameters.properties
+    _G.has_power = props.power ~= nil
+    _G.power_type = props.power and props.power.type
+    _G.power_desc = props.power and props.power.description
+    _G.power_enum = props.power and props.power.enum
+    _G.power_required = vim.tbl_contains(t.schema["function"].parameters.required or {}, "power")
+  ]])
+
+  h.eq(true, child.lua_get([[_G.has_power]]))
+  h.eq("string", child.lua_get([[_G.power_type]]))
+  h.eq(
+    "Power level override for this invocation. "
+      .. "Set this only when there are strong reasons to deviate from the default choice.",
+    child.lua_get([[_G.power_desc]])
+  )
+  h.eq({ "high" }, child.lua_get([[_G.power_enum]]))
+  h.eq(false, child.lua_get([[_G.power_required]]))
+end
+
+T["tool"]["power schema"]["no power param for inherit context_mode"] = function()
+  -- Test that power param is not in schema when context_mode = "inherit"
+  -- Intent: Verify inherit mode SubAgents don't expose power param
+  -- Ref: Plan Task 2, Step 1
+  child.lua([[
+    local tool = require("codecompanion._extensions.subagents.tool")
+
+    local t = tool.create_subagent_tool("test_agent", {
+      description = "Test",
+      system_prompt = "Test",
+      tools = {},
+      context_mode = "inherit",
+    }, { powers = { high = { adapter = "openai" } } })
+
+    _G.has_power = t.schema["function"].parameters.properties.power ~= nil
+  ]])
+
+  h.eq(false, child.lua_get([[_G.has_power]]))
+end
+
+T["tool"]["power schema"]["no power param for explicit adapter"] = function()
+  -- Test that power param is not in schema when SubAgent has explicit adapter
+  -- Intent: Verify SubAgents with explicit adapter don't expose power param
+  -- Ref: Plan Task 2, Step 1
+  child.lua([[
+    local tool = require("codecompanion._extensions.subagents.tool")
+
+    local t = tool.create_subagent_tool("test_agent", {
+      description = "Test",
+      system_prompt = "Test",
+      tools = {},
+      adapter = "openai",
+    }, { powers = { high = { adapter = "openai" } } })
+
+    _G.has_power = t.schema["function"].parameters.properties.power ~= nil
+  ]])
+
+  h.eq(false, child.lua_get([[_G.has_power]]))
+end
+
+T["tool"]["power schema"]["power enum matches power level names"] = function()
+  -- Test that power enum values come from powers keys, sorted alphabetically
+  -- Intent: Verify enum is stable and matches power level names
+  -- Ref: Plan Task 2, Step 1
+  child.lua([[
+    local tool = require("codecompanion._extensions.subagents.tool")
+
+    local t = tool.create_subagent_tool("test_agent", {
+      description = "Test",
+      system_prompt = "Test",
+      tools = {},
+    }, { powers = { high = { adapter = "a" }, low = { adapter = "b" } } })
+
+    _G.power_enum = t.schema["function"].parameters.properties.power.enum
+  ]])
+
+  h.eq({ "high", "low" }, child.lua_get([[_G.power_enum]]))
+end
+
+T["tool"]["power arg passing"] = new_set()
+
+T["tool"]["power arg passing"]["passes power arg to manager"] = function()
+  -- Test that power arg from tool call is passed to manager:start_subagent
+  -- Intent: Verify args.power is forwarded in the config table
+  -- Ref: Plan Task 3, Step 1
+  child.lua([[
+    local tool = require("codecompanion._extensions.subagents.tool")
+    local manager = require("codecompanion._extensions.subagents.manager")
+
+    local mock_chat = {
+      id = "parent_chat",
+      adapter = { name = "test_adapter" },
+      ui = { hide = function() end, open = function() end },
+    }
+
+    local captured_config = nil
+    local original_start = manager.start_subagent
+    manager.start_subagent = function(self, chat, config, task, context)
+      captured_config = config
+    end
+
+    local tool_instance = tool.create_subagent_tool("test_agent", {
+      description = "Test",
+      system_prompt = "Test",
+      tools = {},
+    })
+
+    local mock_self = { chat = mock_chat }
+    tool_instance.cmds[1](mock_self, { task = "Test task", power = "high" }, {})
+
+    manager.start_subagent = original_start
+
+    _G.power_value = captured_config.power
+  ]])
+
+  h.eq("high", child.lua_get([[_G.power_value]]))
+end
+
+T["tool"]["power arg passing"]["passes nil power when not provided"] = function()
+  -- Test that power is nil in config when not provided in args
+  -- Intent: Verify absence of power arg results in nil in config
+  -- Ref: Plan Task 3, Step 1
+  child.lua([[
+    local tool = require("codecompanion._extensions.subagents.tool")
+    local manager = require("codecompanion._extensions.subagents.manager")
+
+    local mock_chat = {
+      id = "parent_chat",
+      adapter = { name = "test_adapter" },
+      ui = { hide = function() end, open = function() end },
+    }
+
+    local captured_config = nil
+    local original_start = manager.start_subagent
+    manager.start_subagent = function(self, chat, config, task, context)
+      captured_config = config
+    end
+
+    local tool_instance = tool.create_subagent_tool("test_agent", {
+      description = "Test",
+      system_prompt = "Test",
+      tools = {},
+    })
+
+    local mock_self = { chat = mock_chat }
+    tool_instance.cmds[1](mock_self, { task = "Test task" }, {})
+
+    manager.start_subagent = original_start
+
+    _G.power_is_nil = captured_config.power == nil or captured_config.power == vim.NIL
+  ]])
+
+  h.eq(true, child.lua_get([[_G.power_is_nil]]))
+end
+
+T["tool"]["power arg passing"]["passes default_power to manager"] = function()
+  -- Test that default_power from SubAgent config is passed to manager:start_subagent
+  -- Intent: Verify config.default_power is forwarded in the config table
+  -- Ref: Plan Task 3, Step 1
+  child.lua([[
+    local tool = require("codecompanion._extensions.subagents.tool")
+    local manager = require("codecompanion._extensions.subagents.manager")
+
+    local mock_chat = {
+      id = "parent_chat",
+      adapter = { name = "test_adapter" },
+      ui = { hide = function() end, open = function() end },
+    }
+
+    local captured_config = nil
+    local original_start = manager.start_subagent
+    manager.start_subagent = function(self, chat, config, task, context)
+      captured_config = config
+    end
+
+    local tool_instance = tool.create_subagent_tool("test_agent", {
+      description = "Test",
+      system_prompt = "Test",
+      tools = {},
+      default_power = "medium",
+    })
+
+    local mock_self = { chat = mock_chat }
+    tool_instance.cmds[1](mock_self, { task = "Test task" }, {})
+
+    manager.start_subagent = original_start
+
+    _G.default_power_value = captured_config.default_power
+  ]])
+
+  h.eq("medium", child.lua_get([[_G.default_power_value]]))
+end
+
+T["tool"]["power arg passing"]["passes nil default_power when not configured"] = function()
+  -- Test that default_power is nil in config when not configured in SubAgent
+  -- Intent: Verify absence of default_power results in nil in config
+  -- Ref: Plan Task 3, Step 1
+  child.lua([[
+    local tool = require("codecompanion._extensions.subagents.tool")
+    local manager = require("codecompanion._extensions.subagents.manager")
+
+    local mock_chat = {
+      id = "parent_chat",
+      adapter = { name = "test_adapter" },
+      ui = { hide = function() end, open = function() end },
+    }
+
+    local captured_config = nil
+    local original_start = manager.start_subagent
+    manager.start_subagent = function(self, chat, config, task, context)
+      captured_config = config
+    end
+
+    local tool_instance = tool.create_subagent_tool("test_agent", {
+      description = "Test",
+      system_prompt = "Test",
+      tools = {},
+      -- default_power not configured
+    })
+
+    local mock_self = { chat = mock_chat }
+    tool_instance.cmds[1](mock_self, { task = "Test task" }, {})
+
+    manager.start_subagent = original_start
+
+    _G.default_power_is_nil = captured_config.default_power == nil or captured_config.default_power == vim.NIL
+  ]])
+
+  h.eq(true, child.lua_get([[_G.default_power_is_nil]]))
+end
 
 T["tool"]["approval_mode"] = new_set()
 
