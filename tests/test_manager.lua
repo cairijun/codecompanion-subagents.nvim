@@ -2820,7 +2820,11 @@ T["manager"]["power runtime validation"]["error when power arg on unsupported su
 
   local err = child.lua_get([[_G.error_msg]])
   local err_str = type(err) == "userdata" and tostring(err) or tostring(err)
-  h.eq(true, err_str:find("does not support power override") ~= nil, "Error should mention 'does not support power override'")
+  h.eq(
+    true,
+    err_str:find("does not support power override") ~= nil,
+    "Error should mention 'does not support power override'"
+  )
 end
 
 T["manager"]["power runtime validation"]["error when power arg references unknown level"] = function()
@@ -2865,7 +2869,11 @@ T["manager"]["power runtime validation"]["error when power arg references unknow
 
   local err = child.lua_get([[_G.error_msg]])
   local err_str = type(err) == "userdata" and tostring(err) or tostring(err)
-  h.eq(true, err_str:find("unknown power level") ~= nil, "Error should mention 'unknown power level'")
+  h.eq(
+    true,
+    err_str:find("unknown power level") ~= nil,
+    "Error should mention 'unknown power level'"
+  )
 end
 
 -- ============================================================================

@@ -123,19 +123,39 @@ T["concurrent subagents"]["two subagents running simultaneously both receive cor
   -- Verify both subagent_ids were created
   h.eq(true, child.lua_get([[_G.agent1_id ~= nil]]), "Agent 1 should have a subagent_id")
   h.eq(true, child.lua_get([[_G.agent2_id ~= nil]]), "Agent 2 should have a subagent_id")
-  h.eq(true, child.lua_get([[_G.agent1_id ~= _G.agent2_id]]), "Agent 1 and Agent 2 should have different subagent_ids")
+  h.eq(
+    true,
+    child.lua_get([[_G.agent1_id ~= _G.agent2_id]]),
+    "Agent 1 and Agent 2 should have different subagent_ids"
+  )
 
   -- Agent 1's callback SHOULD be called with Agent 1's result
   h.eq(true, child.lua_get([[_G.agent1_cb_called]]), "Agent 1's callback should be called")
   local agent1_result = child.lua_get([[_G.agent1_result]])
-  h.eq("success", agent1_result and agent1_result.status, "Agent 1 result should have success status")
-  h.eq("Result from agent one", agent1_result and agent1_result.data, "Agent 1 should receive its own result")
+  h.eq(
+    "success",
+    agent1_result and agent1_result.status,
+    "Agent 1 result should have success status"
+  )
+  h.eq(
+    "Result from agent one",
+    agent1_result and agent1_result.data,
+    "Agent 1 should receive its own result"
+  )
 
   -- Agent 2's callback SHOULD be called with Agent 2's result
   h.eq(true, child.lua_get([[_G.agent2_cb_called]]), "Agent 2's callback should be called")
   local agent2_result = child.lua_get([[_G.agent2_result]])
-  h.eq("success", agent2_result and agent2_result.status, "Agent 2 result should have success status")
-  h.eq("Result from agent two", agent2_result and agent2_result.data, "Agent 2 should receive its own result")
+  h.eq(
+    "success",
+    agent2_result and agent2_result.status,
+    "Agent 2 result should have success status"
+  )
+  h.eq(
+    "Result from agent two",
+    agent2_result and agent2_result.data,
+    "Agent 2 should receive its own result"
+  )
 end
 
 T["concurrent subagents"]["sequential subagents work correctly"] = function()

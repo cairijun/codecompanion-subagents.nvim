@@ -49,6 +49,7 @@ Each subagent requires the following fields:
 | `adapter` | string, table, or "inherit" | No | Adapter for the subagent. Use a string name (e.g., `"anthropic"`), a table with name and model (e.g., `{ name = "openai", model = "gpt-4o" }`), or `"inherit"` to use the parent chat's adapter (default when omitted). **Mutually exclusive with `default_power`.** |
 | `default_power` | string | No | Default power level for this subagent. Requires `powers` to be defined. Cannot be used with `adapter` or `context_mode = "inherit"`. |
 | `approval_mode` | `"isolated"`, `"inherit"`, or `"shared"` | No | How tool approval state is managed. `"isolated"` (default): SubAgent starts with no pre-approved tools. `"inherit"`: deep-copies parent's approval state at startup, then operates independently. `"shared"`: shares the same approval table with parent bidirectionally. |
+| `async_delivery` | boolean | No | Run this subagent non-blocking: the tool call returns immediately and the result is delivered later as a separate message. A per-subagent override for the global `opts.async_delivery` option. |
 
 ### Example Configuration
 
@@ -218,18 +219,58 @@ SubAgents support three approval modes to control whether tool approvals are sha
 | `inherit` | SubAgent deep-copies parent's approval state at startup, then operates independently |
 | `shared` | SubAgent shares the same approval table with the parent (bidirectional) |
 
+### Async Delivery
+
+By default a subagent call blocks the main agent's tool queue until the subagent finishes.
+With `async_delivery` enabled, the tool call returns immediately and the subagent keeps
+working in the background. Its result is delivered to the chat as a separate message
+tagged `[subagent_result id=<subagent_id>]` on the next turn where the chat is idle.
+This lets the main agent dispatch several subagents and continue working while they
+run in parallel.
+
+```lua
+require("codecompanion").setup({
+  extensions = {
+    subagents = {
+      enabled = true,
+      opts = {
+        -- All subagents run non-blocking
+        async_delivery = true,
+        subagents = {
+          web_researcher = {
+            description = "Searches the web to answer specific questions.",
+            async_delivery = false, -- per-subagent override: keep this one blocking
+            -- ...
+          },
+        },
+      },
+    },
+  },
+})
+```
+
+Both `async_delivery` (global) and `subagents.<name>.async_delivery` (override) must be
+booleans. When both are set, the per-subagent value wins.
+
+**Trade-offs:**
+
+- The result arrives as a separate message, not as the tool result of the original call.
+- Failed subagents are delivered with an extra `[ERROR]` marker in the `[subagent_result id=...]` tag.
+- Every delivered result starts one extra LLM turn.
+- Several pending results are delivered one per idle turn, in FIFO order.
+
 ## How It Works
 
 1. **Setup Phase**: When CodeCompanion initializes, the extension registers a tool for each configured subagent with a `subagent_` prefix
 2. **Tool Call**: The main agent decides to delegate a task and calls a subagent tool
 3. **SubAgent Execution**:
-   - Hides the parent chat UI
+   - In blocking mode, hides the parent chat UI
    - Creates a new subagent chat
    - Subagent executes with its specialized system prompt
 4. **Completion**:
    - Subagent calls `complete_subagent` with its result
-   - Restores the parent chat UI
-   - Result is returned to the main conversation
+   - In blocking mode: restores the parent chat UI and returns the result to the main conversation
+   - In async delivery mode: queues the result and delivers it as a separate `[subagent_result id=...]` message when the parent chat is idle (see [Async Delivery](#async-delivery))
 
 ## License
 

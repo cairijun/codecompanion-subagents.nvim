@@ -67,6 +67,17 @@ function M.create_subagent_tool(name, config, opts)
     }
   end
 
+  -- Async delivery resolution: per-subagent override wins over the global
+  -- async_delivery option. Captured here because the opts parameter of the
+  -- cmds function below is the runner opts, not the extension opts.
+  local global_async_delivery = opts.async_delivery == true
+  local function resolve_async_delivery()
+    if config.async_delivery ~= nil then
+      return config.async_delivery == true
+    end
+    return global_async_delivery
+  end
+
   return {
     name = prefixed_name,
     cmds = {
@@ -75,6 +86,8 @@ function M.create_subagent_tool(name, config, opts)
 
         -- Extract power from call args
         local power = args.power
+
+        local async_delivery = resolve_async_delivery()
 
         -- Start the sub-agent with parent_chat, capture the unique subagent_id
         local subagent_id = manager:start_subagent(self.chat, {
@@ -89,7 +102,26 @@ function M.create_subagent_tool(name, config, opts)
           approval_mode = approval_mode,
           power = power,
           default_power = default_power,
+          async = async_delivery,
         }, args.task, args.context)
+
+        if async_delivery then
+          -- Non-blocking dispatch: release the orchestrator immediately. The
+          -- real result is delivered later as a separate message on the
+          -- parent chat's next idle point (see manager:async delivery).
+          if opts and opts.output_cb then
+            opts.output_cb({
+              status = "success",
+              data = string.format(
+                [[SubAgent %s started in the background (id=%s). The task was dispatched and you do not need to wait for it. Its result will be delivered to you as a separate message starting with [subagent_result id=%s] when the subagent finishes. Continue with other work.]],
+                name,
+                subagent_id,
+                subagent_id
+              ),
+            })
+          end
+          return
+        end
 
         -- Store completion callback in chat object keyed by subagent_id
         if self.chat._subagents and self.chat._subagents[subagent_id] then

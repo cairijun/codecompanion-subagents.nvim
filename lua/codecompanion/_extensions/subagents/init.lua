@@ -39,14 +39,36 @@ local function validate_powers_config(opts)
   for name, subagent_config in pairs(subagents) do
     if subagent_config.default_power ~= nil then
       if powers[subagent_config.default_power] == nil then
-        error("subagents." .. name .. ".default_power references unknown power: " .. subagent_config.default_power)
+        error(
+          "subagents."
+            .. name
+            .. ".default_power references unknown power: "
+            .. subagent_config.default_power
+        )
       end
       if subagent_config.adapter ~= nil then
         error("subagents." .. name .. " cannot set both adapter and default_power")
       end
       if subagent_config.context_mode == "inherit" then
-        error("subagents." .. name .. " with context_mode=\"inherit\" cannot use default_power")
+        error("subagents." .. name .. ' with context_mode="inherit" cannot use default_power')
       end
+    end
+  end
+end
+
+---Validate async_delivery option
+---@param opts table
+---@return nil
+local function validate_async_delivery(opts)
+  if opts.async_delivery ~= nil and type(opts.async_delivery) ~= "boolean" then
+    error("async_delivery must be a boolean")
+  end
+  -- Per-subagent override must be a boolean too
+  for name, subagent_config in pairs(opts.subagents or {}) do
+    if
+      subagent_config.async_delivery ~= nil and type(subagent_config.async_delivery) ~= "boolean"
+    then
+      error("subagents." .. name .. ".async_delivery must be a boolean")
     end
   end
 end
@@ -60,6 +82,7 @@ function M.setup(opts)
 
   -- Validate powers configuration before proceeding
   validate_powers_config(opts)
+  validate_async_delivery(opts)
 
   local subagents = opts.subagents or {}
   M._subagents = subagents

@@ -237,7 +237,10 @@ T["init"]["default_power validation"]["rejects default_power with explicit adapt
   ]])
 
   h.eq(false, child.lua_get([[_G.setup_ok]]))
-  h.eq(true, child.lua_get([[_G.error_msg:find("cannot set both adapter and default_power") ~= nil]]))
+  h.eq(
+    true,
+    child.lua_get([[_G.error_msg:find("cannot set both adapter and default_power") ~= nil]])
+  )
 end
 
 T["init"]["default_power validation"]["rejects default_power with inherit context_mode"] = function()
@@ -308,6 +311,49 @@ T["init"]["exports list_subagents function"] = function()
 
   local list = child.lua_get([[_G.list]])
   h.eq(2, #list)
+end
+
+T["init"]["async_delivery validation"] = new_set()
+
+T["init"]["async_delivery validation"]["rejects a non-boolean global option"] = function()
+  child.lua([[
+    local subagents = require("codecompanion._extensions.subagents")
+    local ok, err = pcall(function()
+      subagents.setup({
+        async_delivery = "yes",
+        subagents = {},
+      })
+    end)
+    _G.failed = not ok
+    _G.msg = tostring(err)
+  ]])
+  h.eq(true, child.lua_get([[_G.failed]]), "non-boolean async_delivery must error")
+  h.eq(
+    true,
+    child.lua_get([[_G.msg:find("async_delivery must be a boolean", 1, true) ~= nil]]),
+    "error must mention the async_delivery boolean constraint"
+  )
+end
+
+T["init"]["async_delivery validation"]["rejects a non-boolean per-subagent option"] = function()
+  child.lua([[
+    local subagents = require("codecompanion._extensions.subagents")
+    local ok, err = pcall(function()
+      subagents.setup({
+        subagents = {
+          my_agent = { description = "d", async_delivery = 1 },
+        },
+      })
+    end)
+    _G.failed = not ok
+    _G.msg = tostring(err)
+  ]])
+  h.eq(true, child.lua_get([[_G.failed]]), "non-boolean per-subagent async_delivery must error")
+  h.eq(
+    true,
+    child.lua_get([[_G.msg:find("async_delivery must be a boolean", 1, true) ~= nil]]),
+    "error must mention the boolean constraint"
+  )
 end
 
 return T
